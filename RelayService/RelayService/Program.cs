@@ -16,27 +16,27 @@ try
         AutomaticRecoveryEnabled = true
     };
 
-    using var connection = factory.CreateConnection();
-    using var channel = connection.CreateModel();
+    await using var connection = await factory.CreateConnectionAsync();
+    await using var channel = await connection.CreateChannelAsync();
 
     Console.WriteLine("RelayService connected to RabbitMQ");
 
     // Declare relay exchanges
-    channel.ExchangeDeclare(
+    await channel.ExchangeDeclareAsync(
         exchange: "relay.chat.global",
         type: ExchangeType.Fanout,
         durable: true,
         autoDelete: false);
     Console.WriteLine("Declared exchange: relay.chat.global (fanout, durable)");
 
-    channel.ExchangeDeclare(
+    await channel.ExchangeDeclareAsync(
         exchange: "relay.game.events",
         type: ExchangeType.Topic,
         durable: true,
         autoDelete: false);
     Console.WriteLine("Declared exchange: relay.game.events (topic, durable)");
 
-    channel.ExchangeDeclare(
+    await channel.ExchangeDeclareAsync(
         exchange: "relay.session.events",
         type: ExchangeType.Topic,
         durable: true,
