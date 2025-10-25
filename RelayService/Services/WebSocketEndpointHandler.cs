@@ -76,15 +76,17 @@ public class WebSocketEndpointHandler
         // Extract user ID from validated principal (accepts multiple claim type aliases)
         var userId = principal!.FindFirst(ClaimTypes.NameIdentifier)?.Value
                    ?? principal.FindFirst("nameid")?.Value
-                   ?? principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value;
+                   ?? principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
+                   ?? Guid.NewGuid().ToString(); // v0.2 workaround: Auth service doesn't send nameid yet
 
+        // TODO v0.3: Uncomment when Auth service includes nameid claim
         // EO; user ID not found in token claims
-        if (string.IsNullOrEmpty(userId))
-        {
-            context.Response.StatusCode = 401;
-            await context.Response.WriteAsync("User ID not found in token");
-            return;
-        }
+        // if (string.IsNullOrEmpty(userId))
+        // {
+        //     context.Response.StatusCode = 401;
+        //     await context.Response.WriteAsync("User ID not found in token");
+        //     return;
+        // }
 
         // Accept WebSocket connection
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();

@@ -102,17 +102,22 @@
     "schemas": {
       "JwtToken": {
         "type": "object",
-        "description": "JWT token payload structure",
+        "description": "JWT token payload structure. v0.2: nameid is optional (generates fallback ID). v0.3: nameid will be required.",
         "properties": {
           "nameid": {
             "type": "string",
-            "description": "User identifier (required)",
+            "description": "User identifier (optional in v0.2, recommended for v0.3). If not provided, a GUID will be generated.",
             "example": "test-user-123"
           },
           "unique_name": {
             "type": "string",
-            "description": "Username (optional)",
+            "description": "Username (optional, not used in v0.2)",
             "example": "TestUser"
+          },
+          "role": {
+            "type": "string",
+            "description": "User role (optional, not used in v0.2)",
+            "example": "Admin"
           },
           "nbf": {
             "type": "integer",
@@ -121,16 +126,26 @@
           },
           "exp": {
             "type": "integer",
-            "description": "Expiration timestamp",
+            "description": "Expiration timestamp (required)",
             "example": 1761377088
           },
           "iat": {
             "type": "integer",
             "description": "Issued at timestamp",
             "example": 1761373488
+          },
+          "iss": {
+            "type": "string",
+            "description": "Token issuer (optional)",
+            "example": "https://localhost:5001"
+          },
+          "aud": {
+            "type": "string",
+            "description": "Token audience (optional)",
+            "example": "https://localhost:5001"
           }
         },
-        "required": ["nameid", "exp"]
+        "required": ["exp"]
       }
     }
   }
