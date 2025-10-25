@@ -1,64 +1,72 @@
-using RabbitMQ.Client;
+using Microsoft.AspNetCore.Builder;
+using Microsoft.Extensions.DependencyInjection;
+using RelayService;
+using RelayService.Configuration;
+using RelayService.Interfaces;
+using RelayService.Models;
+using RelayService.Services;
 
-Console.WriteLine($"RelayService v{RelayService.ServiceVersion.Current} starting...");
+// Create webapp and websocket
+var builder = WebApplication.CreateBuilder(args);
 
-var rabbitMqHost = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "localhost";
-
-Console.WriteLine($"Connecting to RabbitMQ at {rabbitMqHost}...");
-
-try
+// Configuration
+var jwtConfiguration = new JwtConfiguration
 {
-    var factory = new ConnectionFactory
-    {
-        HostName = rabbitMqHost,
-        Port = 5672,
-        RequestedConnectionTimeout = TimeSpan.FromSeconds(30),
-        AutomaticRecoveryEnabled = true
-    };
-
-    await using var connection = await factory.CreateConnectionAsync();
-    await using var channel = await connection.CreateChannelAsync();
-
-    Console.WriteLine("RelayService connected to RabbitMQ");
-
-    // Declare relay exchanges
-    await channel.ExchangeDeclareAsync(
-        exchange: "relay.chat.global",
-        type: ExchangeType.Fanout,
-        durable: true,
-        autoDelete: false);
-    Console.WriteLine("Declared exchange: relay.chat.global (fanout, durable)");
-
-    await channel.ExchangeDeclareAsync(
-        exchange: "relay.game.events",
-        type: ExchangeType.Topic,
-        durable: true,
-        autoDelete: false);
-    Console.WriteLine("Declared exchange: relay.game.events (topic, durable)");
-
-    await channel.ExchangeDeclareAsync(
-        exchange: "relay.session.events",
-        type: ExchangeType.Topic,
-        durable: true,
-        autoDelete: false);
-    Console.WriteLine("Declared exchange: relay.session.events (topic, durable)");
-
-    Console.WriteLine("RelayService is running. Press Ctrl+C to exit.");
-
-    // Keep the worker running
-    var cancellationTokenSource = new CancellationTokenSource();
-    Console.CancelKeyPress += (sender, eventArgs) =>
-    {
-        eventArgs.Cancel = true;
-        cancellationTokenSource.Cancel();
-    };
-
-    cancellationTokenSource.Token.WaitHandle.WaitOne();
-}
-catch (Exception ex)
+    // T0DO: Move to secure secret storage/ .env files
+    Secret = "superSecretKey@345superSecretKey@345"
+};
+var webSocketConfiguration = new WebSocketConfiguration();
+var rabbitMqConfiguration = new RabbitMqConfiguration
 {
-    Console.WriteLine($"Error: {ex.Message}");
-    Environment.Exit(1);
-}
+    HostName = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq"
+};
 
-Console.WriteLine("RelayService stopped.");
+// Register configurations
+builder.Services.AddSingleton(jwtConfiguration);
+builder.Services.AddSingleton(webSocketConfiguration);
+builder.Services.AddSingleton(rabbitMqConfiguration);
+
+// Register services
+builder.Services.AddSingleton<IJwtValidationService, JwtValidationService>();
+builder.Services.AddSingleton<IWebSocketConnectionManager, WebSocketConnectionManager>();
+builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
+builder.Services.AddSingleton<IRabbitMqConsumerService, RabbitMqConsumerService>();
+builder.Services.AddSingleton<WebSocketEndpointHandler>();
+
+var app = builder.Build();
+
+// WebSocket middleware must be registered BEFORE endpoint routing
+app.UseWebSockets();
+
+// WebSocket endpoint handler - must come BEFORE MapGet endpoints
+app.Use(async (context, next) =>
+{
+    if (context.Request.Path == "/ws")
+    {
+        var webSocketHandler = context.RequestServices.GetRequiredService<WebSocketEndpointHandler>();
+        await webSocketHandler.HandleWebSocketConnectionAsync(context);
+    }
+    else
+    {
+        await next(context);
+    }
+});
+
+// Nice intro
+Console.WriteLine($"RelayService v{ServiceVersion.Current} starting...");
+
+// Start RabbitMQ consumer in background
+var rabbitMqConsumerService = app.Services.GetRequiredService<IRabbitMqConsumerService>();
+Task.Run(async () => await rabbitMqConsumerService.StartConsumerAsync());
+
+// Declare endpoints (these create endpoint routing which runs after our middleware)
+app.MapGet("/health", () => "healthy");
+app.MapGet("/version", () => ServiceVersion.Current);
+
+// broadcast listening
+Console.WriteLine("RelayService listening on http://+:8080");
+
+app.Run();
+
+// Make Program class accessible to WebApplicationFactory for testing
+public partial class Program { }

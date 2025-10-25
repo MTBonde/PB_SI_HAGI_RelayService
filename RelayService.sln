@@ -7,6 +7,8 @@ Project("{2150E333-8FDC-42A3-9474-1A3956D46DE8}") = "RelayService", "RelayServic
 EndProject
 Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RelayService", "RelayService\RelayService.csproj", "{8141B1F2-3AEB-4528-9C73-CA63656E82EE}"
 EndProject
+Project("{FAE04EC0-301F-11D3-BF4B-00C04F79EFBC}") = "RelayService.Tests", "RelayService.Tests\RelayService.Tests.csproj", "{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}"
+EndProject
 Global
 	GlobalSection(SolutionConfigurationPlatforms) = preSolution
 		Debug|Any CPU = Debug|Any CPU
@@ -29,6 +31,18 @@ Global
 		{8141B1F2-3AEB-4528-9C73-CA63656E82EE}.Release|x64.Build.0 = Release|Any CPU
 		{8141B1F2-3AEB-4528-9C73-CA63656E82EE}.Release|x86.ActiveCfg = Release|Any CPU
 		{8141B1F2-3AEB-4528-9C73-CA63656E82EE}.Release|x86.Build.0 = Release|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Debug|Any CPU.ActiveCfg = Debug|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Debug|Any CPU.Build.0 = Debug|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Debug|x64.ActiveCfg = Debug|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Debug|x64.Build.0 = Debug|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Debug|x86.ActiveCfg = Debug|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Debug|x86.Build.0 = Debug|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Release|Any CPU.ActiveCfg = Release|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Release|Any CPU.Build.0 = Release|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Release|x64.ActiveCfg = Release|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Release|x64.Build.0 = Release|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Release|x86.ActiveCfg = Release|Any CPU
+		{3B28F6DE-965D-4431-A8BC-827FDF75F4A5}.Release|x86.Build.0 = Release|Any CPU
 	EndGlobalSection
 	GlobalSection(SolutionProperties) = preSolution
 		HideSolutionNode = FALSE
