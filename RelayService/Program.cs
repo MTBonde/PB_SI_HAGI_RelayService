@@ -33,6 +33,18 @@ builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
 builder.Services.AddSingleton<IRabbitMqConsumerService, RabbitMqConsumerService>();
 builder.Services.AddSingleton<WebSocketEndpointHandler>();
 
+// Add Swagger/OpenAPI
+builder.Services.AddEndpointsApiExplorer();
+builder.Services.AddSwaggerGen(options =>
+{
+    options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
+    {
+        Title = "RelayService API",
+        Version = ServiceVersion.Current,
+        Description = "WebSocket relay service for broadcasting messages from RabbitMQ to connected clients"
+    });
+});
+
 var app = builder.Build();
 
 // WebSocket middleware must be registered BEFORE endpoint routing
@@ -62,6 +74,14 @@ Task.Run(async () => await rabbitMqConsumerService.StartConsumerAsync());
 // Declare endpoints (these create endpoint routing which runs after our middleware)
 app.MapGet("/health", () => "healthy");
 app.MapGet("/version", () => ServiceVersion.Current);
+
+// Enable Swagger UI
+app.UseSwagger();
+app.UseSwaggerUI(options =>
+{
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", $"RelayService API v{ServiceVersion.Current}");
+    options.RoutePrefix = "swagger";
+});
 
 // broadcast listening
 Console.WriteLine("RelayService listening on http://+:8080");

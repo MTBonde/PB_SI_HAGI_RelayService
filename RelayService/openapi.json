@@ -1,0 +1,137 @@
+{
+  "openapi": "3.0.1",
+  "info": {
+    "title": "RelayService API",
+    "version": "0.2.0",
+    "description": "WebSocket relay service for broadcasting messages from RabbitMQ to connected clients"
+  },
+  "servers": [
+    {
+      "url": "http://localhost:8080",
+      "description": "Local development"
+    }
+  ],
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Health check endpoint",
+        "description": "Returns service health status",
+        "responses": {
+          "200": {
+            "description": "Service is healthy",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "healthy"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/version": {
+      "get": {
+        "tags": ["Health"],
+        "summary": "Version endpoint",
+        "description": "Returns current service version",
+        "responses": {
+          "200": {
+            "description": "Service version",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "example": "0.2.0"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ws": {
+      "get": {
+        "tags": ["WebSocket"],
+        "summary": "WebSocket connection endpoint",
+        "description": "Establishes WebSocket connection with JWT authentication. Server sends 'Welcome to WEBSOCKET!' message after successful connection.",
+        "parameters": [
+          {
+            "name": "token",
+            "in": "query",
+            "required": true,
+            "description": "JWT authentication token containing 'nameid' claim",
+            "schema": {
+              "type": "string",
+              "example": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9..."
+            }
+          }
+        ],
+        "responses": {
+          "101": {
+            "description": "WebSocket connection established. Welcome message will be sent."
+          },
+          "400": {
+            "description": "Bad Request - Not a WebSocket upgrade request",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized - Missing token, invalid token, expired token, or user ID not found in token",
+            "content": {
+              "text/plain": {
+                "schema": {
+                  "type": "string",
+                  "enum": ["Missing token", "Invalid token", "User ID not found in token"]
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "JwtToken": {
+        "type": "object",
+        "description": "JWT token payload structure",
+        "properties": {
+          "nameid": {
+            "type": "string",
+            "description": "User identifier (required)",
+            "example": "test-user-123"
+          },
+          "unique_name": {
+            "type": "string",
+            "description": "Username (optional)",
+            "example": "TestUser"
+          },
+          "nbf": {
+            "type": "integer",
+            "description": "Not before timestamp",
+            "example": 1761373488
+          },
+          "exp": {
+            "type": "integer",
+            "description": "Expiration timestamp",
+            "example": 1761377088
+          },
+          "iat": {
+            "type": "integer",
+            "description": "Issued at timestamp",
+            "example": 1761373488
+          }
+        },
+        "required": ["nameid", "exp"]
+      }
+    }
+  }
+}
