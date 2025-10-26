@@ -10,21 +10,35 @@ namespace RelayService.Tests.Helpers;
 /// </summary>
 public class TestWebApplicationFactory : WebApplicationFactory<Program>
 {
+    public MockRabbitMqPublisher? MockPublisher { get; private set; }
+
     protected override void ConfigureWebHost(IWebHostBuilder builder)
     {
         builder.ConfigureServices(services =>
         {
             // Remove the real RabbitMQ consumer service
-            var rabbitMqServiceDescriptor = services.SingleOrDefault(
+            var rabbitMqConsumerDescriptor = services.SingleOrDefault(
                 descriptor => descriptor.ServiceType == typeof(IRabbitMqConsumerService));
 
-            if (rabbitMqServiceDescriptor != null)
+            if (rabbitMqConsumerDescriptor != null)
             {
-                services.Remove(rabbitMqServiceDescriptor);
+                services.Remove(rabbitMqConsumerDescriptor);
             }
 
-            // Register a mock RabbitMQ consumer that does nothing
+            // Remove the real RabbitMQ publisher service
+            var rabbitMqPublisherDescriptor = services.SingleOrDefault(
+                descriptor => descriptor.ServiceType == typeof(IRabbitMqPublisher));
+
+            if (rabbitMqPublisherDescriptor != null)
+            {
+                services.Remove(rabbitMqPublisherDescriptor);
+            }
+
+            // Register mocks
             services.AddSingleton<IRabbitMqConsumerService, MockRabbitMqConsumerService>();
+
+            MockPublisher = new MockRabbitMqPublisher();
+            services.AddSingleton<IRabbitMqPublisher>(MockPublisher);
         });
     }
 
@@ -40,4 +54,40 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             return Task.CompletedTask;
         }
     }
+}
+
+/// <summary>
+/// Mock implementation of IRabbitMqPublisher that tracks published messages for testing
+/// </summary>
+public class MockRabbitMqPublisher : IRabbitMqPublisher
+{
+    private readonly List<PublishedMessage> publishedMessages = new();
+
+    public Task PublishAsync(string exchange, string routingKey, string message)
+    {
+        publishedMessages.Add(new PublishedMessage
+        {
+            Exchange = exchange,
+            RoutingKey = routingKey,
+            Message = message,
+            Timestamp = DateTime.UtcNow
+        });
+
+        return Task.CompletedTask;
+    }
+
+    public List<PublishedMessage> GetPublishedMessages() => publishedMessages;
+
+    public void ClearPublishedMessages() => publishedMessages.Clear();
+}
+
+/// <summary>
+/// Represents a message that was published to RabbitMQ during testing
+/// </summary>
+public class PublishedMessage
+{
+    public string Exchange { get; set; } = string.Empty;
+    public string RoutingKey { get; set; } = string.Empty;
+    public string Message { get; set; } = string.Empty;
+    public DateTime Timestamp { get; set; }
 }
