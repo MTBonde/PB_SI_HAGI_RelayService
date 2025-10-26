@@ -28,6 +28,7 @@ builder.Services.AddSingleton(rabbitMqConfiguration);
 
 // Register services
 builder.Services.AddSingleton<IJwtValidationService, JwtValidationService>();
+builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
 builder.Services.AddSingleton<IWebSocketConnectionManager, WebSocketConnectionManager>();
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
 builder.Services.AddSingleton<IRabbitMqConsumerService, RabbitMqConsumerService>();

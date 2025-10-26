@@ -1,6 +1,8 @@
 using System.IdentityModel.Tokens.Jwt;
 using System.Net.WebSockets;
 using System.Security.Claims;
+using System.Text;
+using System.Text.Json;
 using Microsoft.AspNetCore.Http;
 using RelayService.Configuration;
 using RelayService.Interfaces;
@@ -16,6 +18,7 @@ public class WebSocketEndpointHandler
     private readonly IJwtValidationService jwtValidationService;
     private readonly IWebSocketConnectionManager connectionManager;
     private readonly WebSocketConfiguration configuration;
+    private readonly IRabbitMqPublisher rabbitMqPublisher;
 
     /// <summary>
     /// Initializes a new instance of the WebSocketEndpointHandler class with the specified dependencies
@@ -23,14 +26,17 @@ public class WebSocketEndpointHandler
     /// <param name="jwtValidationService">Service for validating JWT tokens</param>
     /// <param name="connectionManager">Manager for WebSocket connections</param>
     /// <param name="configuration">WebSocket configuration settings</param>
+    /// <param name="rabbitMqPublisher">RabbitMQ publisher for forwarding client messages</param>
     public WebSocketEndpointHandler(
         IJwtValidationService jwtValidationService,
         IWebSocketConnectionManager connectionManager,
-        WebSocketConfiguration configuration)
+        WebSocketConfiguration configuration,
+        IRabbitMqPublisher rabbitMqPublisher)
     {
         this.jwtValidationService = jwtValidationService;
         this.connectionManager = connectionManager;
         this.configuration = configuration;
+        this.rabbitMqPublisher = rabbitMqPublisher;
     }
 
     /// <summary>
@@ -109,7 +115,7 @@ public class WebSocketEndpointHandler
     /// <returns>A task representing the asynchronous lifecycle management</returns>
     /// <remarks>
     /// This method runs in a loop receiving messages until the connection is closed.
-    /// Currently, received messages are not processed - the connection is only kept alive.
+    /// Received text messages are parsed and forwarded to RabbitMQ.
     /// Connection is removed from the manager in the finally block to ensure cleanup.
     /// </remarks>
     private async Task HandleWebSocketLifecycleAsync(WebSocket webSocket, string userId)
@@ -134,6 +140,12 @@ public class WebSocketEndpointHandler
                         CancellationToken.None);
                     break;
                 }
+
+                // Handle text messages from client
+                if (result.MessageType == WebSocketMessageType.Text)
+                {
+                    await ProcessClientMessageAsync(buffer, result.Count, userId);
+                }
             }
         }
         catch (WebSocketException exception)
@@ -148,6 +160,51 @@ public class WebSocketEndpointHandler
         {
             // Always remove connection on disconnect to prevent memory leaks
             connectionManager.RemoveConnection(userId);
+        }
+    }
+
+    /// <summary>
+    /// Processes incoming client messages and forwards them to RabbitMQ
+    /// </summary>
+    /// <param name="buffer">The buffer containing the message bytes</param>
+    /// <param name="count">The number of bytes in the message</param>
+    /// <param name="userId">The user ID of the sender</param>
+    private async Task ProcessClientMessageAsync(byte[] buffer, int count, string userId)
+    {
+        try
+        {
+            // Convert bytes to string
+            var messageText = Encoding.UTF8.GetString(buffer, 0, count);
+            Console.WriteLine($"Received message from user {userId}: {messageText}");
+
+            // Parse message as RelayMessage
+            var relayMessage = JsonSerializer.Deserialize<RelayMessage>(messageText);
+
+            if (relayMessage == null)
+            {
+                Console.WriteLine($"Failed to parse message from user {userId}");
+                return;
+            }
+
+            // TODO: Next iteration - enrich message with user context from JWT claims
+            // relayMessage.UserId = userId;
+            // relayMessage.Username = username; // from JWT claims
+            // relayMessage.Role = role; // from JWT claims
+
+            // For now, forward all messages to relay.chat.global (fanout exchange)
+            // Simple KISS approach - no complex routing yet
+            var enrichedMessage = JsonSerializer.Serialize(relayMessage);
+            await rabbitMqPublisher.PublishAsync("relay.chat.global", "", enrichedMessage);
+
+            Console.WriteLine($"Forwarded message from user {userId} to RabbitMQ");
+        }
+        catch (JsonException exception)
+        {
+            Console.WriteLine($"JSON parsing error for message from user {userId}: {exception.Message}");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Error processing message from user {userId}: {exception.Message}");
         }
     }
 }
