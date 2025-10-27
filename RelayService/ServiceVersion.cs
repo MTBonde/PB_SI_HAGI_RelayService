@@ -15,4 +15,4 @@ public static class ServiceVersion
 // websocket 0.2.0
 // dockerfile fix 0.2.1
 // token adaption 0.2.2
-// relay added
+// relay added 0.3.0
