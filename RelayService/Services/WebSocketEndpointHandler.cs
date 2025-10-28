@@ -93,6 +93,16 @@ public class WebSocketEndpointHandler
         //     await context.Response.WriteAsync("User ID not found in token");
         //     return;
         // }
+        
+        // Extract username
+        var username = principal.FindFirst(ClaimTypes.Name)?.Value
+                       ?? principal.FindFirst("username")?.Value
+                       ?? "UnknownUser";
+
+        // Extract role
+        var role = principal.FindFirst(ClaimTypes.Role)?.Value
+                   ?? principal.FindFirst("role")?.Value
+                   ?? "Player"; 
 
         // Accept WebSocket connection
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
@@ -104,7 +114,7 @@ public class WebSocketEndpointHandler
         await connectionManager.SendWelcomeMessageAsync(webSocket);
 
         // Keep connection alive and handle messages
-        await HandleWebSocketLifecycleAsync(webSocket, userId);
+        await HandleWebSocketLifecycleAsync(webSocket, userId, username, role);
     }
 
     /// <summary>
@@ -118,7 +128,7 @@ public class WebSocketEndpointHandler
     /// Received text messages are parsed and forwarded to RabbitMQ.
     /// Connection is removed from the manager in the finally block to ensure cleanup.
     /// </remarks>
-    private async Task HandleWebSocketLifecycleAsync(WebSocket webSocket, string userId)
+    private async Task HandleWebSocketLifecycleAsync(WebSocket webSocket, string userId, string username, string role)
     {
         var buffer = new byte[configuration.BufferSize];
 
@@ -144,7 +154,7 @@ public class WebSocketEndpointHandler
                 // Handle text messages from client
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
-                    await ProcessClientMessageAsync(buffer, result.Count, userId);
+                    await ProcessClientMessageAsync(buffer, result.Count, userId, username, role);
                 }
             }
         }
@@ -169,7 +179,9 @@ public class WebSocketEndpointHandler
     /// <param name="buffer">The buffer containing the message bytes</param>
     /// <param name="count">The number of bytes in the message</param>
     /// <param name="userId">The user ID of the sender</param>
-    private async Task ProcessClientMessageAsync(byte[] buffer, int count, string userId)
+    /// <param name="username"></param>
+    /// <param name="role"></param>
+    private async Task ProcessClientMessageAsync(byte[] buffer, int count, string userId, string username, string role)
     {
         try
         {
@@ -177,19 +189,13 @@ public class WebSocketEndpointHandler
             var messageText = Encoding.UTF8.GetString(buffer, 0, count);
             Console.WriteLine($"Received message from user {userId}: {messageText}");
 
-            // Parse message as RelayMessage
+            // Parse message
             var relayMessage = JsonSerializer.Deserialize<RelayMessage>(messageText);
+            if (relayMessage == null) return;
 
-            if (relayMessage == null)
-            {
-                Console.WriteLine($"Failed to parse message from user {userId}");
-                return;
-            }
-
-            // TODO: Next iteration - enrich message with user context from JWT claims
-            // relayMessage.UserId = userId;
-            // relayMessage.Username = username; // from JWT claims
-            // relayMessage.Role = role; // from JWT claims
+            // Enrich with user info
+            relayMessage.Username = username;
+            relayMessage.Role = role;
 
             // For now, forward all messages to relay.chat.global (fanout exchange)
             // Simple KISS approach - no complex routing yet
