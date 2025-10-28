@@ -96,12 +96,12 @@ public class WebSocketEndpointHandler
         
         // Extract username
         var username = principal.FindFirst(ClaimTypes.Name)?.Value
-                       ?? principal.FindFirst("username")?.Value
+                       ?? principal.FindFirst("Username")?.Value
                        ?? "UnknownUser";
 
         // Extract role
         var role = principal.FindFirst(ClaimTypes.Role)?.Value
-                   ?? principal.FindFirst("role")?.Value
+                   ?? principal.FindFirst("Role")?.Value
                    ?? "Player"; 
 
         // Accept WebSocket connection
