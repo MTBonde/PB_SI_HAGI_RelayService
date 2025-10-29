@@ -108,7 +108,7 @@ public class WebSocketEndpointHandler
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
 
         // Add connection to manager
-        connectionManager.AddConnection(userId, role, webSocket);
+        connectionManager.AddConnection(username, role, webSocket);
 
         // Send welcome message
         await connectionManager.SendWelcomeMessageAsync(webSocket);

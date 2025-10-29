@@ -127,11 +127,11 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
             var presenceEvent = new
             {
                 eventType = eventType,
+                username = username,
+                role = role,
                 timestamp = DateTime.UtcNow,
                 // TODO: Next iteration - add user context from JWT claims
                 // userId = userId,
-                username = username,
-                role = role
             };
 
             var message = JsonSerializer.Serialize(presenceEvent);
