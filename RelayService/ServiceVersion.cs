@@ -8,7 +8,7 @@ public static class ServiceVersion
     /// <summary>
     /// Gets the current version of the RelayService in semantic versioning format (major.minor.patch)
     /// </summary>
-    public const string Current = "0.4.0";
+    public const string Current = "0.4.1";
 }
 
 // walking skeleton 0.1.0

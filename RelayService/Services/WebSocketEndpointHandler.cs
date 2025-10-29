@@ -154,22 +154,22 @@ public class WebSocketEndpointHandler
                 // Handle text messages from client
                 if (result.MessageType == WebSocketMessageType.Text)
                 {
-                    await ProcessClientMessageAsync(buffer, result.Count, userId, username, role);
+                    await ProcessClientMessageAsync(buffer, result.Count, username, role);
                 }
             }
         }
         catch (WebSocketException exception)
         {
-            Console.WriteLine($"WebSocket error for user {userId}: {exception.Message}");
+            Console.WriteLine($"WebSocket error for user {username}: {exception.Message}");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Unexpected error for user {userId}: {exception.Message}");
+            Console.WriteLine($"Unexpected error for user {username}: {exception.Message}");
         }
         finally
         {
             // Always remove connection on disconnect to prevent memory leaks
-            connectionManager.RemoveConnection(userId);
+            connectionManager.RemoveConnection(username);
         }
     }
 
@@ -181,13 +181,13 @@ public class WebSocketEndpointHandler
     /// <param name="userId">The user ID of the sender</param>
     /// <param name="username"></param>
     /// <param name="role"></param>
-    private async Task ProcessClientMessageAsync(byte[] buffer, int count, string userId, string username, string role)
+    private async Task ProcessClientMessageAsync(byte[] buffer, int count, string username, string role)
     {
         try
         {
             // Convert bytes to string
             var messageText = Encoding.UTF8.GetString(buffer, 0, count);
-            Console.WriteLine($"Received message from user {userId}: {messageText}");
+            Console.WriteLine($"Received message from user {username}: {messageText}");
 
             // Parse message
             var relayMessage = JsonSerializer.Deserialize<RelayMessage>(messageText);
@@ -202,15 +202,15 @@ public class WebSocketEndpointHandler
             var enrichedMessage = JsonSerializer.Serialize(relayMessage);
             await rabbitMqPublisher.PublishAsync("relay.chat.global", "", enrichedMessage);
 
-            Console.WriteLine($"Forwarded message from user {userId} to RabbitMQ");
+            Console.WriteLine($"Forwarded message from user {username} to RabbitMQ");
         }
         catch (JsonException exception)
         {
-            Console.WriteLine($"JSON parsing error for message from user {userId}: {exception.Message}");
+            Console.WriteLine($"JSON parsing error for message from user {username}: {exception.Message}");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error processing message from user {userId}: {exception.Message}");
+            Console.WriteLine($"Error processing message from user {username}: {exception.Message}");
         }
     }
 }
