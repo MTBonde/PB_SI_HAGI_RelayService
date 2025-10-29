@@ -36,28 +36,28 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     /// </summary>
     /// <param name="userId">The unique identifier for the user associated with the WebSocket connection.</param>
     /// <param name="webSocket">The WebSocket instance representing the user's connection.</param>
-    public void AddConnection(string userId, WebSocket webSocket)
+    public void AddConnection(string username, string role, WebSocket webSocket)
     {
         // Store connection in thread-safe dictionary (overwrites existing if user reconnects)
-        connections[userId] = webSocket;
-        Console.WriteLine($"User {userId} connected. Total connections: {connections.Count}");
+        connections[username] = webSocket;
+        Console.WriteLine($"User {username} connected. Total connections: {connections.Count}");
 
         // Publish presence event to RabbitMQ
-        PublishPresenceEventAsync("connected", userId).GetAwaiter().GetResult();
+        PublishPresenceEventAsync("connected", username, role).GetAwaiter().GetResult();
     }
 
     /// <summary>
     /// Removes the WebSocket connection associated with the specified user ID from the connection manager
     /// </summary>
     /// <param name="userId">The unique identifier of the user whose connection is to be removed</param>
-    public void RemoveConnection(string userId)
+    public void RemoveConnection(string username, string role)
     {
         // Remove connection from dictionary in a thread-safe manner
-        connections.TryRemove(userId, out _);
-        Console.WriteLine($"User {userId} disconnected. Total connections: {connections.Count}");
+        connections.TryRemove(username, out _);
+        Console.WriteLine($"User {username} disconnected. Total connections: {connections.Count}");
 
         // Publish presence event to RabbitMQ
-        PublishPresenceEventAsync("disconnected", userId).GetAwaiter().GetResult();
+        PublishPresenceEventAsync("disconnected", username, role).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -119,7 +119,7 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     /// </summary>
     /// <param name="eventType">The type of event: "connected" or "disconnected"</param>
     /// <param name="userId">The user ID associated with the presence event</param>
-    private async Task PublishPresenceEventAsync(string eventType, string userId)
+    private async Task PublishPresenceEventAsync(string eventType, string username, string role)
     {
         try
         {
@@ -130,14 +130,14 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
                 timestamp = DateTime.UtcNow,
                 // TODO: Next iteration - add user context from JWT claims
                 // userId = userId,
-                // username = username,
-                // role = role
+                username = username,
+                role = role
             };
 
             var message = JsonSerializer.Serialize(presenceEvent);
             await rabbitMqPublisher.PublishAsync("relay.session.events", $"user.{eventType}", message);
 
-            Console.WriteLine($"Published presence event: {eventType} for user {userId}");
+            Console.WriteLine($"Published presence event: {eventType} for user {username}");
         }
         catch (Exception exception)
         {
