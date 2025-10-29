@@ -90,11 +90,14 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
             {
                 try
                 {
+                    var messageText = Encoding.UTF8.GetString(message);
+                    Console.WriteLine($"Attempting to send: {messageText}...");
                     await connection.SendAsync(
                         new ArraySegment<byte>(message),
                         WebSocketMessageType.Text,
                         true,
                         CancellationToken.None);
+                    Console.WriteLine($"Sent message to client:{messageText}");
                 }
                 catch (Exception exception)
                 {
