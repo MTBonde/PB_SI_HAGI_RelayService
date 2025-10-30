@@ -108,7 +108,7 @@ public class WebSocketEndpointHandler
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
 
         // Add connection to manager
-        connectionManager.AddConnection(userId, webSocket);
+        connectionManager.AddConnection(username, role, webSocket);
 
         // Send welcome message
         await connectionManager.SendWelcomeMessageAsync(webSocket);
@@ -169,7 +169,7 @@ public class WebSocketEndpointHandler
         finally
         {
             // Always remove connection on disconnect to prevent memory leaks
-            connectionManager.RemoveConnection(username);
+            connectionManager.RemoveConnection(username, role);
         }
     }
 

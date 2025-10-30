@@ -12,13 +12,13 @@ public interface IWebSocketConnectionManager
     /// </summary>
     /// <param name="userId">The unique identifier for the user</param>
     /// <param name="webSocket">The WebSocket connection to add</param>
-    void AddConnection(string userId, WebSocket webSocket);
+    void AddConnection(string userId, string role, WebSocket webSocket);
 
     /// <summary>
     /// Removes a WebSocket connection from the connection pool and logs the disconnection event
     /// </summary>
     /// <param name="userId">The unique identifier for the user to disconnect</param>
-    void RemoveConnection(string userId);
+    void RemoveConnection(string userId, string role);
 
     /// <summary>
     /// Sends a welcome message to a newly connected WebSocket client
