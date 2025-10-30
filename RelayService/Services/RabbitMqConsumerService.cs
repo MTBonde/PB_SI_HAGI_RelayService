@@ -27,16 +27,22 @@ public class RabbitMqConsumerService : IRabbitMqConsumerService
     /// <param name="connectionManager">Centralized connection manager providing shared channel</param>
     /// <param name="configuration">RabbitMQ configuration containing connection and exchange settings</param>
     /// <param name="messageBroadcaster">Message broadcaster for forwarding messages to WebSocket clients</param>
+    /// <param name="queueManager">Queue manager to subscribe to queue creation events</param>
     public RabbitMqConsumerService(
         RabbitMqConnectionManager connectionManager,
         RabbitMqConfiguration configuration,
-        IMessageBroadcaster messageBroadcaster)
+        IMessageBroadcaster messageBroadcaster,
+        IRabbitMqQueueManager queueManager)
     {
         this.connectionManager = connectionManager;
         this.configuration = configuration;
         this.messageBroadcaster = messageBroadcaster;
         this.userConsumerTags = new ConcurrentDictionary<string, string>();
         this.serverConsumerTags = new ConcurrentDictionary<string, string>();
+
+        // Subscribe to queue creation events
+        queueManager.PrivateQueueCreated += OnPrivateQueueCreated;
+        queueManager.ServerQueueCreated += OnServerQueueCreated;
     }
 
     /// <summary>
@@ -152,86 +158,36 @@ public class RabbitMqConsumerService : IRabbitMqConsumerService
     }
 
     /// <summary>
-    /// Creates and binds a private queue for a specific user to receive direct messages.
-    /// Queue is exclusive and auto-deletes when connection closes.
+    /// Event handler for when a private queue is created by the queue manager.
+    /// Sets up the consumer for the newly created queue.
     /// </summary>
-    /// <param name="username">The username for which to create the private queue</param>
-    public async Task AddPrivateQueueForUserAsync(string username)
+    private async void OnPrivateQueueCreated(object? sender, PrivateQueueCreatedEventArgs e)
     {
         try
         {
             var channel = await connectionManager.GetChannelAsync();
-            var queueName = $"relay.user.{username}";
-            var routingKey = $"user.{username}";
-
-            // Declare private queue for this user (exclusive, auto-delete)
-            await channel.QueueDeclareAsync(
-                queue: queueName,
-                durable: false,
-                exclusive: true,
-                autoDelete: true);
-
-            // Bind queue to chat.private exchange with user-specific routing key
-            await channel.QueueBindAsync(
-                queue: queueName,
-                exchange: configuration.ChatPrivateExchange,
-                routingKey: routingKey);
-
-            Console.WriteLine($"Declared private queue: {queueName} bound to {configuration.ChatPrivateExchange} with routing key {routingKey}");
 
             // Setup consumer for this private queue
             var consumer = new AsyncEventingBasicConsumer(channel);
             consumer.ReceivedAsync += async (model, eventArgs) =>
             {
-                await HandlePrivateMessageReceivedAsync(username, model, eventArgs);
+                await HandlePrivateMessageReceivedAsync(e.Username, model, eventArgs);
             };
 
             // Start consuming from private queue
-            var consumerTag = await channel.BasicConsumeAsync(queueName, autoAck: true, consumer);
+            var consumerTag = await channel.BasicConsumeAsync(e.QueueName, autoAck: true, consumer);
 
             // Store consumer tag for later cleanup
-            userConsumerTags[username] = consumerTag;
+            userConsumerTags[e.Username] = consumerTag;
 
-            Console.WriteLine($"Started consuming from private queue: {queueName} (consumer tag: {consumerTag})");
+            Console.WriteLine($"Started consuming from private queue: {e.QueueName} (consumer tag: {consumerTag})");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error setting up private queue for user {username}: {exception.Message}");
+            Console.WriteLine($"Error setting up consumer for private queue {e.QueueName}: {exception.Message}");
         }
     }
 
-    /// <summary>
-    /// Removes the private queue for a specific user when they disconnect.
-    /// Queue will auto-delete due to exclusive flag, but this ensures immediate cleanup.
-    /// </summary>
-    /// <param name="username">The username whose private queue should be removed</param>
-    public async Task RemovePrivateQueueForUserAsync(string username)
-    {
-        try
-        {
-            // Remove consumer tag from tracking
-            if (userConsumerTags.TryRemove(username, out var consumerTag))
-            {
-                var channel = await connectionManager.GetChannelAsync();
-
-                // Cancel the consumer
-                await channel.BasicCancelAsync(consumerTag);
-
-                Console.WriteLine($"Cancelled consumer for user {username} (consumer tag: {consumerTag})");
-
-                // Note: Queue will auto-delete when connection closes due to exclusive flag
-                // No need to manually delete the queue
-            }
-            else
-            {
-                Console.WriteLine($"No consumer tag found for user {username}");
-            }
-        }
-        catch (Exception exception)
-        {
-            Console.WriteLine($"Error removing private queue for user {username}: {exception.Message}");
-        }
-    }
 
     /// <summary>
     /// Handles incoming private chat messages from RabbitMQ and forwards them to the specific recipient
@@ -266,59 +222,40 @@ public class RabbitMqConsumerService : IRabbitMqConsumerService
     }
 
     /// <summary>
-    /// Creates and binds a server queue to receive messages for all users on a specific server.
-    /// Queue is non-exclusive and auto-deletes when no consumers remain.
+    /// Event handler for when a server queue is created by the queue manager.
+    /// Sets up the consumer for the newly created queue.
     /// </summary>
-    /// <param name="serverId">The server ID for which to create the queue</param>
-    /// <returns>A task representing the asynchronous queue setup operation</returns>
-    public async Task AddServerQueueAsync(string serverId)
+    private async void OnServerQueueCreated(object? sender, ServerQueueCreatedEventArgs e)
     {
-        // Check if server queue already exists
-        if (serverConsumerTags.ContainsKey(serverId))
+        // Check if consumer already exists
+        if (serverConsumerTags.ContainsKey(e.ServerId))
         {
-            Console.WriteLine($"Server queue for {serverId} already exists - skipping");
+            Console.WriteLine($"Consumer for server queue {e.ServerId} already exists - skipping");
             return;
         }
 
         try
         {
             var channel = await connectionManager.GetChannelAsync();
-            var queueName = $"relay.server.{serverId}";
-            var routingKey = $"server.{serverId}";
-
-            // Declare server queue (non-exclusive, auto-delete when no consumers)
-            await channel.QueueDeclareAsync(
-                queue: queueName,
-                durable: false,
-                exclusive: false,
-                autoDelete: true);
-
-            // Bind queue to chat.server exchange with server-specific routing key
-            await channel.QueueBindAsync(
-                queue: queueName,
-                exchange: configuration.ChatServerExchange,
-                routingKey: routingKey);
-
-            Console.WriteLine($"Declared server queue: {queueName} bound to {configuration.ChatServerExchange} with routing key {routingKey}");
 
             // Setup consumer for this server queue
             var consumer = new AsyncEventingBasicConsumer(channel);
             consumer.ReceivedAsync += async (model, eventArgs) =>
             {
-                await HandleServerMessageReceivedAsync(serverId, model, eventArgs);
+                await HandleServerMessageReceivedAsync(e.ServerId, model, eventArgs);
             };
 
             // Start consuming from server queue
-            var consumerTag = await channel.BasicConsumeAsync(queueName, autoAck: true, consumer);
+            var consumerTag = await channel.BasicConsumeAsync(e.QueueName, autoAck: true, consumer);
 
             // Store consumer tag for later cleanup
-            serverConsumerTags[serverId] = consumerTag;
+            serverConsumerTags[e.ServerId] = consumerTag;
 
-            Console.WriteLine($"Started consuming from server queue: {queueName} (consumer tag: {consumerTag})");
+            Console.WriteLine($"Started consuming from server queue: {e.QueueName} (consumer tag: {consumerTag})");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error setting up server queue for server {serverId}: {exception.Message}");
+            Console.WriteLine($"Error setting up consumer for server queue {e.QueueName}: {exception.Message}");
         }
     }
 

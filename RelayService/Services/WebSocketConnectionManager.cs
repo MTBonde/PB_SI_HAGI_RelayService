@@ -15,7 +15,7 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     private readonly ConcurrentDictionary<string, UserConnection> connections;
     private readonly WebSocketConfiguration configuration;
     private readonly IRabbitMqPublisher rabbitMqPublisher;
-    private readonly IRabbitMqConsumerService rabbitMqConsumerService;
+    private readonly IRabbitMqQueueManager rabbitMqQueueManager;
     private readonly ISessionServiceClient sessionServiceClient;
 
     /// <summary>
@@ -23,17 +23,17 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     /// </summary>
     /// <param name="configuration">WebSocket configuration containing buffer size and welcome message</param>
     /// <param name="rabbitMqPublisher">RabbitMQ publisher for presence events</param>
-    /// <param name="rabbitMqConsumerService">RabbitMQ consumer service for managing per-user queues</param>
+    /// <param name="rabbitMqQueueManager">RabbitMQ queue manager for managing per-user and per-server queues</param>
     /// <param name="sessionServiceClient">SessionService client for tracking user server assignments</param>
     public WebSocketConnectionManager(
         WebSocketConfiguration configuration,
         IRabbitMqPublisher rabbitMqPublisher,
-        IRabbitMqConsumerService rabbitMqConsumerService,
+        IRabbitMqQueueManager rabbitMqQueueManager,
         ISessionServiceClient sessionServiceClient)
     {
         this.configuration = configuration;
         this.rabbitMqPublisher = rabbitMqPublisher;
-        this.rabbitMqConsumerService = rabbitMqConsumerService;
+        this.rabbitMqQueueManager = rabbitMqQueueManager;
         this.sessionServiceClient = sessionServiceClient;
         connections = new ConcurrentDictionary<string, UserConnection>();
     }
@@ -66,12 +66,12 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
         Console.WriteLine($"User {username} connected to server {serverId ?? "none"}. Total connections: {connections.Count}");
 
         // Create private queue for this user
-        rabbitMqConsumerService.AddPrivateQueueForUserAsync(username).GetAwaiter().GetResult();
+        rabbitMqQueueManager.AddPrivateQueueForUserAsync(username).GetAwaiter().GetResult();
 
         // Create server queue if user is on a server
         if (!string.IsNullOrEmpty(serverId))
         {
-            rabbitMqConsumerService.AddServerQueueAsync(serverId).GetAwaiter().GetResult();
+            rabbitMqQueueManager.AddServerQueueAsync(serverId).GetAwaiter().GetResult();
         }
 
         // Notify SessionService of login
@@ -103,7 +103,7 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
         Console.WriteLine($"User {username} disconnected. Total connections: {connections.Count}");
 
         // Remove private queue for this user
-        rabbitMqConsumerService.RemovePrivateQueueForUserAsync(username).GetAwaiter().GetResult();
+        rabbitMqQueueManager.RemovePrivateQueueForUserAsync(username).GetAwaiter().GetResult();
 
         // Notify SessionService of logout
         if (connectionId != null)

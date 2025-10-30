@@ -8,7 +8,7 @@ public static class ServiceVersion
     /// <summary>
     /// Gets the current version of the RelayService in semantic versioning format (major.minor.patch)
     /// </summary>
-    public const string Current = "0.5.1";
+    public const string Current = "0.5.2";
 }
 
 // Version History:
@@ -21,3 +21,4 @@ public static class ServiceVersion
 // 0.4.1 - minor fixes
 // 0.5.0 - chat refactor Phase 1 (chat.global exchange, ChatMessage model, basic message loop working)
 // 0.5.1 - chat refactor Phase 2 (chat.private and chat.server)
+// 0.5.2 - fixed circular dependency error
