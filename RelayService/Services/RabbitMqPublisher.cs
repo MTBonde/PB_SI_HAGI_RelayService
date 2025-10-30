@@ -1,27 +1,36 @@
 using System.Text;
+using System.Text.Json;
 using RabbitMQ.Client;
 using RelayService.Configuration;
 using RelayService.Interfaces;
+using RelayService.Models;
 
 namespace RelayService.Services;
 
 /// <summary>
 /// Service for publishing messages to RabbitMQ exchanges
-/// Handles connection management and message publishing
+/// Uses shared connection/channel from RabbitMqConnectionManager
 /// </summary>
+/// <remarks>
+/// Phase 1.b refactor: Uses centralized connection manager for single connection/channel
+/// </remarks>
 public class RabbitMqPublisher : IRabbitMqPublisher
 {
+    private readonly RabbitMqConnectionManager connectionManager;
     private readonly RabbitMqConfiguration configuration;
-    private IConnection? connection;
-    private IChannel? channel;
-    private readonly SemaphoreSlim connectionLock = new(1, 1);
+    private bool exchangesDeclared = false;
+    private readonly SemaphoreSlim declareLock = new(1, 1);
 
     /// <summary>
-    /// Initializes a new instance of the RabbitMqPublisher class with the specified configuration
+    /// Initializes a new instance of the RabbitMqPublisher class with the specified dependencies
     /// </summary>
-    /// <param name="configuration">RabbitMQ configuration containing connection settings</param>
-    public RabbitMqPublisher(RabbitMqConfiguration configuration)
+    /// <param name="connectionManager">Centralized connection manager providing shared channel</param>
+    /// <param name="configuration">RabbitMQ configuration containing exchange settings</param>
+    public RabbitMqPublisher(
+        RabbitMqConnectionManager connectionManager,
+        RabbitMqConfiguration configuration)
     {
+        this.connectionManager = connectionManager;
         this.configuration = configuration;
     }
 
@@ -35,23 +44,14 @@ public class RabbitMqPublisher : IRabbitMqPublisher
     {
         try
         {
-            // Ensure connection and channel are established
-            await EnsureConnectionAsync();
-
-            if (channel == null)
-            {
-                Console.WriteLine("Failed to publish message: channel not initialized");
-                return;
-            }
+            // Ensure exchanges are declared (once)
+            await EnsureExchangesDeclaredAsync();
 
             // Convert message to byte array
             var body = Encoding.UTF8.GetBytes(message);
 
-            // Publish message to the specified exchange
-            await channel.BasicPublishAsync(
-                exchange: exchange,
-                routingKey: routingKey,
-                body: body);
+            // Publish using shared connection manager (thread-safe)
+            await connectionManager.PublishAsync(exchange, routingKey, body);
 
             Console.WriteLine($"Published message to exchange '{exchange}' with routing key '{routingKey}'");
         }
@@ -62,64 +62,100 @@ public class RabbitMqPublisher : IRabbitMqPublisher
     }
 
     /// <summary>
-    /// Ensures that the RabbitMQ connection and channel are established
-    /// Creates new connection and channel if they don't exist or are closed
+    /// Publishes a chat message to the specified RabbitMQ exchange with automatic JSON serialization
     /// </summary>
-    private async Task EnsureConnectionAsync()
+    /// <param name="exchange">The name of the exchange to publish to</param>
+    /// <param name="routingKey">The routing key for the message (use empty string for fanout exchanges)</param>
+    /// <param name="chatMessage">The chat message object to serialize and publish</param>
+    public async Task PublishChatMessageAsync(string exchange, string routingKey, ChatMessage chatMessage)
     {
-        await connectionLock.WaitAsync();
         try
         {
-            // Check if connection needs to be established or re-established
-            if (connection == null || !connection.IsOpen)
-            {
-                await ConnectAsync();
-            }
+            // Ensure exchanges are declared (once)
+            await EnsureExchangesDeclaredAsync();
 
-            // Check if channel needs to be created or re-created
-            if (channel == null || channel.IsClosed)
-            {
-                if (connection != null && connection.IsOpen)
-                {
-                    channel = await connection.CreateChannelAsync();
-                    Console.WriteLine("RabbitMQ publisher channel created");
-                }
-            }
+            // Serialize chat message to JSON
+            var json = JsonSerializer.Serialize(chatMessage);
+            var body = Encoding.UTF8.GetBytes(json);
+
+            // Publish using shared connection manager (thread-safe)
+            await connectionManager.PublishAsync(exchange, routingKey, body);
+
+            Console.WriteLine($"Published chat message from '{chatMessage.FromUsername}' to exchange '{exchange}' with routing key '{routingKey}'");
         }
-        finally
+        catch (Exception exception)
         {
-            connectionLock.Release();
+            Console.WriteLine($"Error publishing chat message to RabbitMQ: {exception.Message}");
         }
     }
 
     /// <summary>
-    /// Establishes connection to RabbitMQ with retry logic
+    /// Ensures exchanges are declared exactly once on first publish
     /// </summary>
-    private async Task ConnectAsync()
+    /// <remarks>
+    /// Thread-safe with double-check locking pattern
+    /// Exchanges are idempotent - safe to declare multiple times, but we optimize by doing it once
+    /// </remarks>
+    private async Task EnsureExchangesDeclaredAsync()
     {
-        var factory = new ConnectionFactory
-        {
-            HostName = configuration.HostName,
-            Port = configuration.Port
-        };
+        if (exchangesDeclared) return;
 
-        int retryCount = 0;
-        while (retryCount < configuration.MaxRetries)
+        await declareLock.WaitAsync();
+        try
         {
-            try
-            {
-                connection = await factory.CreateConnectionAsync();
-                Console.WriteLine("RabbitMQ publisher connected");
-                return;
-            }
-            catch (Exception exception)
-            {
-                retryCount++;
-                Console.WriteLine($"RabbitMQ publisher retry {retryCount}/{configuration.MaxRetries}... Error: {exception.Message}");
-                await Task.Delay(configuration.RetryDelayMilliseconds);
-            }
+            if (exchangesDeclared) return;
+
+            var channel = await connectionManager.GetChannelAsync();
+            await DeclareExchangesAsync(channel);
+            exchangesDeclared = true;
         }
+        finally
+        {
+            declareLock.Release();
+        }
+    }
 
-        Console.WriteLine("RabbitMQ publisher failed to connect after maximum retries");
+    /// <summary>
+    /// Declares the chat exchanges required for message routing
+    /// </summary>
+    /// <param name="channel">The channel to use for declaring exchanges</param>
+    /// <remarks>
+    /// Declares three exchanges:
+    /// - chat.private (direct): For private 1:1 messages using routing key user.{username}
+    /// - chat.server (topic): For server-group messages using routing key server.{serverId}
+    /// - chat.global (fanout): For global broadcast messages
+    /// </remarks>
+    private async Task DeclareExchangesAsync(IChannel channel)
+    {
+        try
+        {
+            // Declare private message exchange (direct routing)
+            await channel.ExchangeDeclareAsync(
+                exchange: configuration.ChatPrivateExchange,
+                type: "direct",
+                durable: true,
+                autoDelete: false);
+            Console.WriteLine($"Declared exchange: {configuration.ChatPrivateExchange} (direct)");
+
+            // Declare server message exchange (topic routing)
+            await channel.ExchangeDeclareAsync(
+                exchange: configuration.ChatServerExchange,
+                type: "topic",
+                durable: true,
+                autoDelete: false);
+            Console.WriteLine($"Declared exchange: {configuration.ChatServerExchange} (topic)");
+
+            // Declare global message exchange (fanout routing)
+            await channel.ExchangeDeclareAsync(
+                exchange: configuration.ChatGlobalExchange,
+                type: "fanout",
+                durable: true,
+                autoDelete: false);
+            Console.WriteLine($"Declared exchange: {configuration.ChatGlobalExchange} (fanout)");
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"Error declaring exchanges: {exception.Message}");
+        }
     }
 }

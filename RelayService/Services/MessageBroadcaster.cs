@@ -1,4 +1,7 @@
+using System.Text;
+using System.Text.Json;
 using RelayService.Interfaces;
+using RelayService.Models;
 
 namespace RelayService.Services;
 
@@ -28,5 +31,22 @@ public class MessageBroadcaster : IMessageBroadcaster
     {
         // Delegate broadcasting to the connection manager
         await connectionManager.BroadcastMessageAsync(message);
+    }
+
+    /// <summary>
+    /// Broadcasts a chat message to all connected WebSocket clients with JSON serialization
+    /// </summary>
+    /// <param name="chatMessage">The chat message object to serialize and broadcast</param>
+    /// <returns>A task representing the asynchronous broadcast operation</returns>
+    public async Task BroadcastChatMessageAsync(ChatMessage chatMessage)
+    {
+        // Serialize chat message to JSON
+        var json = JsonSerializer.Serialize(chatMessage);
+        var bytes = Encoding.UTF8.GetBytes(json);
+
+        // Delegate broadcasting to the connection manager
+        await connectionManager.BroadcastMessageAsync(bytes);
+
+        Console.WriteLine($"Broadcasted chat message from {chatMessage.FromUsername} to all connected clients");
     }
 }

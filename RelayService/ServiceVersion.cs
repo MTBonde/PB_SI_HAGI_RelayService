@@ -8,11 +8,15 @@ public static class ServiceVersion
     /// <summary>
     /// Gets the current version of the RelayService in semantic versioning format (major.minor.patch)
     /// </summary>
-    public const string Current = "0.4.1";
+    public const string Current = "0.5.0";
 }
 
-// walking skeleton 0.1.0
-// websocket 0.2.0
-// dockerfile fix 0.2.1
-// token adaption 0.2.2
-// relay added 0.3.0
+// Version History:
+// 0.1.0 - walking skeleton
+// 0.2.0 - websocket support
+// 0.2.1 - dockerfile fix
+// 0.2.2 - token adaption
+// 0.3.0 - relay added (bidirectional RabbitMQ)
+// 0.4.0 - relay 4.0
+// 0.4.1 - minor fixes
+// 0.5.0 - chat refactor Phase 1 (chat.global exchange, ChatMessage model, basic message loop working)

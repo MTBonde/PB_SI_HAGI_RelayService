@@ -26,6 +26,9 @@ builder.Services.AddSingleton(jwtConfiguration);
 builder.Services.AddSingleton(webSocketConfiguration);
 builder.Services.AddSingleton(rabbitMqConfiguration);
 
+// Register RabbitMQ connection manager (Phase 1.b: Single connection/channel for entire service)
+builder.Services.AddSingleton<RabbitMqConnectionManager>();
+
 // Register services
 builder.Services.AddSingleton<IJwtValidationService, JwtValidationService>();
 builder.Services.AddSingleton<IRabbitMqPublisher, RabbitMqPublisher>();
