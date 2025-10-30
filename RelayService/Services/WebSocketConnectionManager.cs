@@ -3,6 +3,7 @@ using System.Net.WebSockets;
 using System.Text;
 using RelayService.Interfaces;
 using RelayService.Models;
+using System.Text.Json;
 
 namespace RelayService.Services;
 
@@ -13,14 +14,16 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
 {
     private readonly ConcurrentDictionary<string, WebSocket> connections;
     private readonly WebSocketConfiguration configuration;
+    private readonly IRabbitMqPublisher rabbitMqPublisher;
 
     /// <summary>
     /// Initializes a new instance of the WebSocketConnectionManager class with the specified configuration
     /// </summary>
     /// <param name="configuration">WebSocket configuration containing buffer size and welcome message</param>
-    public WebSocketConnectionManager(WebSocketConfiguration configuration)
+    public WebSocketConnectionManager(WebSocketConfiguration configuration, IRabbitMqPublisher rabbitMqPublisher)
     {
         this.configuration = configuration;
+        this.rabbitMqPublisher = rabbitMqPublisher;
         connections = new ConcurrentDictionary<string, WebSocket>();
     }
 
