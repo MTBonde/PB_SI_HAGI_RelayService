@@ -1,3 +1,5 @@
+using RelayService.Models;
+
 namespace RelayService.Interfaces;
 
 /// <summary>
@@ -11,4 +13,11 @@ public interface IMessageBroadcaster
     /// <param name="message">The message bytes to broadcast to all clients</param>
     /// <returns>A task representing the asynchronous broadcast operation</returns>
     Task BroadcastToAllClientsAsync(byte[] message);
+
+    /// <summary>
+    /// Broadcasts a chat message to all connected WebSocket clients with JSON serialization
+    /// </summary>
+    /// <param name="chatMessage">The chat message object to serialize and broadcast</param>
+    /// <returns>A task representing the asynchronous broadcast operation</returns>
+    Task BroadcastChatMessageAsync(ChatMessage chatMessage);
 }

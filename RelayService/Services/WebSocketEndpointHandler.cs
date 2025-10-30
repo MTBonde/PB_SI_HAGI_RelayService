@@ -178,9 +178,12 @@ public class WebSocketEndpointHandler
     /// </summary>
     /// <param name="buffer">The buffer containing the message bytes</param>
     /// <param name="count">The number of bytes in the message</param>
-    /// <param name="userId">The user ID of the sender</param>
-    /// <param name="username"></param>
-    /// <param name="role"></param>
+    /// <param name="username">The username of the sender</param>
+    /// <param name="role">The role of the sender</param>
+    /// <remarks>
+    /// Phase 1: Routes all messages to chat.global exchange (broadcast)
+    /// Phase 2+: Will add routing logic for private and server messages
+    /// </remarks>
     private async Task ProcessClientMessageAsync(byte[] buffer, int count, string username, string role)
     {
         try
@@ -189,28 +192,39 @@ public class WebSocketEndpointHandler
             var messageText = Encoding.UTF8.GetString(buffer, 0, count);
             Console.WriteLine($"Received message from user {username}: {messageText}");
 
-            // Parse message
-            var relayMessage = JsonSerializer.Deserialize<RelayMessage>(messageText);
-            if (relayMessage == null) return;
+            // Parse message as ChatMessage
+            var chatMessage = JsonSerializer.Deserialize<ChatMessage>(messageText);
+            if (chatMessage == null)
+            {
+                Console.WriteLine($"Failed to deserialize message from {username}");
+                return;
+            }
 
-            // Enrich with user info
-            relayMessage.Username = username;
-            relayMessage.Role = role;
+            // PHASE 1: Default to global if type not specified
+            if (string.IsNullOrEmpty(chatMessage.Type))
+            {
+                chatMessage.Type = "global";
+            }
 
-            // For now, forward all messages to relay.chat.global (fanout exchange)
-            // Simple KISS approach - no complex routing yet
-            var enrichedMessage = JsonSerializer.Serialize(relayMessage);
-            await rabbitMqPublisher.PublishAsync("relay.chat.global", "", enrichedMessage);
+            // Enrich message with server-side data
+            chatMessage.FromUsername = username;
+            chatMessage.Role = role;
+            chatMessage.Timestamp = DateTime.UtcNow;
 
-            Console.WriteLine($"Forwarded message from user {username} to RabbitMQ");
+            // PHASE 1: Route all messages to chat.global exchange (broadcast to all)
+            // TODO: Phase 2 - Add routing logic for "private" messages to chat.private exchange
+            // TODO: Phase 3 - Add routing logic for "server" messages to chat.server exchange
+            await rabbitMqPublisher.PublishChatMessageAsync("chat.global", "", chatMessage);
+
+            Console.WriteLine($"Published {chatMessage.Type} message from {username} to chat.global");
         }
         catch (JsonException exception)
         {
-            Console.WriteLine($"JSON parsing error for message from user {username}: {exception.Message}");
+            Console.WriteLine($"JSON parsing error for message from {username}: {exception.Message}");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error processing message from user {username}: {exception.Message}");
+            Console.WriteLine($"Error processing message from {username}: {exception.Message}");
         }
     }
 }

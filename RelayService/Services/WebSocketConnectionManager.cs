@@ -1,10 +1,9 @@
 using System.Collections.Concurrent;
 using System.Net.WebSockets;
 using System.Text;
-using System.Text.Json;
-using RelayService.Configuration;
 using RelayService.Interfaces;
 using RelayService.Models;
+using System.Text.Json;
 
 namespace RelayService.Services;
 
@@ -21,10 +20,7 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     /// Initializes a new instance of the WebSocketConnectionManager class with the specified configuration
     /// </summary>
     /// <param name="configuration">WebSocket configuration containing buffer size and welcome message</param>
-    /// <param name="rabbitMqPublisher">RabbitMQ publisher for sending presence events</param>
-    public WebSocketConnectionManager(
-        WebSocketConfiguration configuration,
-        IRabbitMqPublisher rabbitMqPublisher)
+    public WebSocketConnectionManager(WebSocketConfiguration configuration, IRabbitMqPublisher rabbitMqPublisher)
     {
         this.configuration = configuration;
         this.rabbitMqPublisher = rabbitMqPublisher;

@@ -1,7 +1,9 @@
+using System.Text.Json;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
 using Microsoft.Extensions.DependencyInjection;
 using RelayService.Interfaces;
+using RelayService.Models;
 
 namespace RelayService.Tests.Helpers;
 
@@ -70,6 +72,20 @@ public class MockRabbitMqPublisher : IRabbitMqPublisher
             Exchange = exchange,
             RoutingKey = routingKey,
             Message = message,
+            Timestamp = DateTime.UtcNow
+        });
+
+        return Task.CompletedTask;
+    }
+
+    public Task PublishChatMessageAsync(string exchange, string routingKey, ChatMessage chatMessage)
+    {
+        var json = JsonSerializer.Serialize(chatMessage);
+        publishedMessages.Add(new PublishedMessage
+        {
+            Exchange = exchange,
+            RoutingKey = routingKey,
+            Message = json,
             Timestamp = DateTime.UtcNow
         });
 
