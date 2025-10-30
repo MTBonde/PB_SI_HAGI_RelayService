@@ -8,12 +8,9 @@ using RelayService.Models;
 namespace RelayService.Services;
 
 /// <summary>
-/// Service for publishing messages to RabbitMQ exchanges
-/// Uses shared connection/channel from RabbitMqConnectionManager
+/// Service for publishing messages to RabbitMQ exchanges.
+/// Uses shared connection/channel from RabbitMqConnectionManager for thread-safe operations.
 /// </summary>
-/// <remarks>
-/// Phase 1.b refactor: Uses centralized connection manager for single connection/channel
-/// </remarks>
 public class RabbitMqPublisher : IRabbitMqPublisher
 {
     private readonly RabbitMqConnectionManager connectionManager;

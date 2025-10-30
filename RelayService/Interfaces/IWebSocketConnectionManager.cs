@@ -36,6 +36,24 @@ public interface IWebSocketConnectionManager
     Task BroadcastMessageAsync(byte[] message);
 
     /// <summary>
+    /// Sends a message to a specific user by username
+    /// </summary>
+    /// <param name="username">The username of the recipient</param>
+    /// <param name="message">The message bytes to send</param>
+    /// <returns>A task representing the asynchronous send operation</returns>
+    /// <remarks>Message is only sent if the user is connected and their WebSocket is in Open state</remarks>
+    Task SendMessageToUserAsync(string username, byte[] message);
+
+    /// <summary>
+    /// Broadcasts a message to all users connected to a specific server
+    /// </summary>
+    /// <param name="serverId">The server ID to broadcast to</param>
+    /// <param name="message">The message bytes to send</param>
+    /// <returns>A task representing the asynchronous broadcast operation</returns>
+    /// <remarks>Only sends to users whose ServerId matches the specified server</remarks>
+    Task BroadcastMessageToServerAsync(string serverId, byte[] message);
+
+    /// <summary>
     /// Gets the current number of active WebSocket connections
     /// </summary>
     /// <returns>The count of active connections</returns>

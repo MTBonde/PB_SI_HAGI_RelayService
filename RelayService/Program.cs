@@ -5,9 +5,13 @@ using RelayService.Configuration;
 using RelayService.Interfaces;
 using RelayService.Models;
 using RelayService.Services;
+using Hagi.Robust;
 
 // Create webapp and websocket
 var builder = WebApplication.CreateBuilder(args);
+
+// add hagi.robus
+builder.Services.AddHagiResilience();
 
 // Configuration
 var jwtConfiguration = new JwtConfiguration
@@ -21,12 +25,15 @@ var rabbitMqConfiguration = new RabbitMqConfiguration
     HostName = Environment.GetEnvironmentVariable("RABBITMQ_HOST") ?? "rabbitmq"
 };
 
+// SessionService configuration
+var sessionServiceUrl = Environment.GetEnvironmentVariable("SESSION_SERVICE_URL") ?? "http://sessionservice:8081";
+
 // Register configurations
 builder.Services.AddSingleton(jwtConfiguration);
 builder.Services.AddSingleton(webSocketConfiguration);
 builder.Services.AddSingleton(rabbitMqConfiguration);
 
-// Register RabbitMQ connection manager (Phase 1.b: Single connection/channel for entire service)
+// Register RabbitMQ connection manager (Single connection/channel for entire service)
 builder.Services.AddSingleton<RabbitMqConnectionManager>();
 
 // Register services
@@ -36,6 +43,15 @@ builder.Services.AddSingleton<IWebSocketConnectionManager, WebSocketConnectionMa
 builder.Services.AddSingleton<IMessageBroadcaster, MessageBroadcaster>();
 builder.Services.AddSingleton<IRabbitMqConsumerService, RabbitMqConsumerService>();
 builder.Services.AddSingleton<WebSocketEndpointHandler>();
+
+// Register SessionService client with HTTP client
+builder.Services.AddHttpClient<SessionServiceClient>();
+builder.Services.AddSingleton<ISessionServiceClient>(serviceProvider =>
+{
+    var httpClientFactory = serviceProvider.GetRequiredService<IHttpClientFactory>();
+    var client = httpClientFactory.CreateClient();
+    return new SessionServiceClient(client, sessionServiceUrl);
+});
 
 // Add Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
@@ -89,6 +105,9 @@ app.UseSwaggerUI(options =>
 
 // broadcast listening
 Console.WriteLine("RelayService listening on http://+:8080");
+
+// Creates endpoint at /health/ready
+app.MapReadinessEndpoint(); 
 
 app.Run();
 
