@@ -55,6 +55,24 @@ public class TestWebApplicationFactory : WebApplicationFactory<Program>
             // Do nothing - no RabbitMQ connection needed in tests
             return Task.CompletedTask;
         }
+
+        public Task AddPrivateQueueForUserAsync(string username)
+        {
+            // Do nothing - no RabbitMQ connection needed in tests
+            return Task.CompletedTask;
+        }
+
+        public Task RemovePrivateQueueForUserAsync(string username)
+        {
+            // Do nothing - no RabbitMQ connection needed in tests
+            return Task.CompletedTask;
+        }
+
+        public Task AddServerQueueAsync(string serverId)
+        {
+            // Do nothing - no RabbitMQ connection needed in tests
+            return Task.CompletedTask;
+        }
     }
 }
 

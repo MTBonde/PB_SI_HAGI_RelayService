@@ -19,6 +19,7 @@ public class WebSocketEndpointHandler
     private readonly IWebSocketConnectionManager connectionManager;
     private readonly WebSocketConfiguration configuration;
     private readonly IRabbitMqPublisher rabbitMqPublisher;
+    private readonly ISessionServiceClient sessionServiceClient;
 
     /// <summary>
     /// Initializes a new instance of the WebSocketEndpointHandler class with the specified dependencies
@@ -27,16 +28,19 @@ public class WebSocketEndpointHandler
     /// <param name="connectionManager">Manager for WebSocket connections</param>
     /// <param name="configuration">WebSocket configuration settings</param>
     /// <param name="rabbitMqPublisher">RabbitMQ publisher for forwarding client messages</param>
+    /// <param name="sessionServiceClient">SessionService client for retrieving user server assignments</param>
     public WebSocketEndpointHandler(
         IJwtValidationService jwtValidationService,
         IWebSocketConnectionManager connectionManager,
         WebSocketConfiguration configuration,
-        IRabbitMqPublisher rabbitMqPublisher)
+        IRabbitMqPublisher rabbitMqPublisher,
+        ISessionServiceClient sessionServiceClient)
     {
         this.jwtValidationService = jwtValidationService;
         this.connectionManager = connectionManager;
         this.configuration = configuration;
         this.rabbitMqPublisher = rabbitMqPublisher;
+        this.sessionServiceClient = sessionServiceClient;
     }
 
     /// <summary>
@@ -80,29 +84,14 @@ public class WebSocketEndpointHandler
         }
 
         // Extract user ID from validated principal (accepts multiple claim type aliases)
-        var userId = principal!.FindFirst(ClaimTypes.NameIdentifier)?.Value
-                   ?? principal.FindFirst("nameid")?.Value
-                   ?? principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value
-                   ?? Guid.NewGuid().ToString(); // v0.2 workaround: Auth service doesn't send nameid yet
+        var userId = principal!.FindFirst(ClaimTypes.NameIdentifier)?.Value ?? principal.FindFirst("nameid")?.Value ?? principal.FindFirst(JwtRegisteredClaimNames.Sub)?.Value ?? Guid.NewGuid().ToString(); // v0.2 workaround: Auth service doesn't send nameid yet
 
-        // TODO v0.3: Uncomment when Auth service includes nameid claim
-        // EO; user ID not found in token claims
-        // if (string.IsNullOrEmpty(userId))
-        // {
-        //     context.Response.StatusCode = 401;
-        //     await context.Response.WriteAsync("User ID not found in token");
-        //     return;
-        // }
-        
+
         // Extract username
-        var username = principal.FindFirst(ClaimTypes.Name)?.Value
-                       ?? principal.FindFirst("Username")?.Value
-                       ?? "UnknownUser";
+        var username = principal.FindFirst(ClaimTypes.Name)?.Value ?? principal.FindFirst("Username")?.Value ?? "UnknownUser";
 
         // Extract role
-        var role = principal.FindFirst(ClaimTypes.Role)?.Value
-                   ?? principal.FindFirst("Role")?.Value
-                   ?? "Player"; 
+        var role = principal.FindFirst(ClaimTypes.Role)?.Value ?? principal.FindFirst("Role")?.Value ?? "Player"; 
 
         // Accept WebSocket connection
         using var webSocket = await context.WebSockets.AcceptWebSocketAsync();
@@ -174,16 +163,13 @@ public class WebSocketEndpointHandler
     }
 
     /// <summary>
-    /// Processes incoming client messages and forwards them to RabbitMQ
+    /// Processes incoming client messages and forwards them to RabbitMQ.
+    /// Routes messages based on type: global (broadcast), private (user-specific), or server (server-group).
     /// </summary>
     /// <param name="buffer">The buffer containing the message bytes</param>
     /// <param name="count">The number of bytes in the message</param>
     /// <param name="username">The username of the sender</param>
     /// <param name="role">The role of the sender</param>
-    /// <remarks>
-    /// Phase 1: Routes all messages to chat.global exchange (broadcast)
-    /// Phase 2+: Will add routing logic for private and server messages
-    /// </remarks>
     private async Task ProcessClientMessageAsync(byte[] buffer, int count, string username, string role)
     {
         try
@@ -200,7 +186,7 @@ public class WebSocketEndpointHandler
                 return;
             }
 
-            // PHASE 1: Default to global if type not specified
+            // Default to global if type not specified
             if (string.IsNullOrEmpty(chatMessage.Type))
             {
                 chatMessage.Type = "global";
@@ -211,12 +197,26 @@ public class WebSocketEndpointHandler
             chatMessage.Role = role;
             chatMessage.Timestamp = DateTime.UtcNow;
 
-            // PHASE 1: Route all messages to chat.global exchange (broadcast to all)
-            // TODO: Phase 2 - Add routing logic for "private" messages to chat.private exchange
-            // TODO: Phase 3 - Add routing logic for "server" messages to chat.server exchange
-            await rabbitMqPublisher.PublishChatMessageAsync("chat.global", "", chatMessage);
+            // Route based on message type
+            switch (chatMessage.Type.ToLower())
+            {
+                case "private":
+                    // Private messages - route to specific user
+                    await HandlePrivateMessageAsync(chatMessage, username);
+                    break;
 
-            Console.WriteLine($"Published {chatMessage.Type} message from {username} to chat.global");
+                case "server":
+                    // Server messages - route to users on same server
+                    await HandleServerMessageAsync(chatMessage, username);
+                    break;
+
+                case "global":
+                default:
+                    // Global messages - broadcast to all
+                    await rabbitMqPublisher.PublishChatMessageAsync("chat.global", "", chatMessage);
+                    Console.WriteLine($"Published global message from {username} to chat.global");
+                    break;
+            }
         }
         catch (JsonException exception)
         {
@@ -226,5 +226,56 @@ public class WebSocketEndpointHandler
         {
             Console.WriteLine($"Error processing message from {username}: {exception.Message}");
         }
+    }
+
+    /// <summary>
+    /// Handles private message routing to a specific user.
+    /// Validates ToUsername is provided and publishes to chat.private exchange with user-specific routing key.
+    /// </summary>
+    /// <param name="chatMessage">The chat message to send</param>
+    /// <param name="senderUsername">The username of the sender</param>
+    private async Task HandlePrivateMessageAsync(ChatMessage chatMessage, string senderUsername)
+    {
+        // Validate ToUsername is provided
+        if (string.IsNullOrEmpty(chatMessage.ToUsername))
+        {
+            Console.WriteLine($"Private message from {senderUsername} missing ToUsername - message ignored");
+            return;
+        }
+
+        // Publish to chat.private exchange with user-specific routing key
+        var routingKey = $"user.{chatMessage.ToUsername}";
+        await rabbitMqPublisher.PublishChatMessageAsync("chat.private", routingKey, chatMessage);
+
+        Console.WriteLine($"Published private message from {senderUsername} to {chatMessage.ToUsername} via chat.private exchange");
+    }
+
+    /// <summary>
+    /// Handles server message routing to all users on the same server.
+    /// Retrieves sender's server ID and publishes to chat.server exchange with server-specific routing key.
+    /// </summary>
+    /// <param name="chatMessage">The chat message to send</param>
+    /// <param name="senderUsername">The username of the sender</param>
+    private async Task HandleServerMessageAsync(ChatMessage chatMessage, string senderUsername)
+    {
+        // Get server ID - either from message or from SessionService
+        var serverId = chatMessage.ServerId;
+        if (string.IsNullOrEmpty(serverId))
+        {
+            serverId = await sessionServiceClient.GetServerIdAsync(senderUsername);
+        }
+
+        // Validate server ID is available
+        if (string.IsNullOrEmpty(serverId))
+        {
+            Console.WriteLine($"Server message from {senderUsername} has no ServerId - message ignored");
+            return;
+        }
+
+        // Publish to chat.server exchange with server-specific routing key
+        var routingKey = $"server.{serverId}";
+        await rabbitMqPublisher.PublishChatMessageAsync("chat.server", routingKey, chatMessage);
+
+        Console.WriteLine($"Published server message from {senderUsername} to server {serverId} via chat.server exchange");
     }
 }

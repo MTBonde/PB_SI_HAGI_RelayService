@@ -8,13 +8,6 @@ namespace RelayService.Interfaces;
 public interface IJwtValidationService
 {
     /// <summary>
-    /// Validates a JWT token signature and claims according to configuration
-    /// </summary>
-    /// <param name="token">The JWT token string to validate</param>
-    /// <returns>True if the token is valid, false otherwise</returns>
-    bool ValidateToken(string token);
-
-    /// <summary>
     /// Validates a JWT token and returns the claims principal if validation succeeds
     /// </summary>
     /// <param name="token">The JWT token string to validate</param>
