@@ -8,7 +8,7 @@ public static class ServiceVersion
     /// <summary>
     /// Gets the current version of the RelayService in semantic versioning format (major.minor.patch)
     /// </summary>
-    public const string Current = "0.5.3";
+    public const string Current = "0.5.4";
 }
 
 // Version History:
@@ -23,3 +23,4 @@ public static class ServiceVersion
 // 0.5.1 - chat refactor Phase 2 (chat.private and chat.server)
 // 0.5.2 - fixed circular dependency error
 // 0.5.3 - fixing chat.server and server logging in session
+// 0.5.4 - removed leftover code causing errors  in rabbitmq

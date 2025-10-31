@@ -71,9 +71,6 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
 
         // Notify SessionService of login (without server)
         sessionServiceClient.LoginAsync(username, role, connectionId, null).GetAwaiter().GetResult();
-
-        // Publish presence event to RabbitMQ (no server yet)
-        PublishPresenceEventAsync("connected", username, role, null).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -133,9 +130,6 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
         {
             sessionServiceClient.LogoutAsync(username, connectionId).GetAwaiter().GetResult();
         }
-
-        // Publish presence event to RabbitMQ
-        PublishPresenceEventAsync("disconnected", username, role, serverId).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -346,39 +340,6 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
         return null;
     }
 
-    /// <summary>
-    /// Publishes a presence event to RabbitMQ when a user connects or disconnects
-    /// </summary>
-    /// <param name="eventType">The type of event: "connected" or "disconnected"</param>
-    /// <param name="username">The username associated with the presence event</param>
-    /// <param name="role">The role of the user</param>
-    /// <param name="serverId">The server ID where the user is connected</param>
-    private async Task PublishPresenceEventAsync(string eventType, string username, string role, string? serverId = null)
-    {
-        try
-        {
-            // Create presence event with basic information
-            var presenceEvent = new
-            {
-                eventType = eventType,
-                username = username,
-                role = role,
-                serverId = serverId,
-                timestamp = DateTime.UtcNow,
-                // TODO: Next iteration - add user context from JWT claims
-                // userId = userId,
-            };
-
-            var message = JsonSerializer.Serialize(presenceEvent);
-            await rabbitMqPublisher.PublishAsync("relay.session.events", $"user.{eventType}", message);
-
-            Console.WriteLine($"Published presence event: {eventType} for user {username} (server: {serverId ?? "none"})");
-        }
-        catch (Exception exception)
-        {
-            Console.WriteLine($"Error publishing presence event: {exception.Message}");
-        }
-    }
 }
 
 /// <summary>
