@@ -58,4 +58,18 @@ public interface IWebSocketConnectionManager
     /// </summary>
     /// <returns>The count of active connections</returns>
     int GetConnectionCount();
+
+    /// <summary>
+    /// Updates the server assignment for a connected user
+    /// </summary>
+    /// <param name="username">The username of the user to update</param>
+    /// <param name="serverId">The server ID to assign (null to clear assignment)</param>
+    void UpdateUserServer(string username, string? serverId);
+
+    /// <summary>
+    /// Gets the current server ID for a connected user
+    /// </summary>
+    /// <param name="username">The username to look up</param>
+    /// <returns>The server ID if user is on a server, null otherwise</returns>
+    string? GetUserServerId(string username);
 }

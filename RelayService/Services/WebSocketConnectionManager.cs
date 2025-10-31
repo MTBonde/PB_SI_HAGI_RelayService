@@ -50,35 +50,30 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
         // Generate unique connection ID
         var connectionId = Guid.NewGuid().ToString();
 
-        // Get server ID from SessionService
-        var serverId = sessionServiceClient.GetServerIdAsync(username).GetAwaiter().GetResult();
+        // DON'T get server ID on connect - user will send server.join message after selecting server in UI
 
-        // Store connection with server tracking (overwrites existing if user reconnects)
+        // Store connection without server tracking (server will be set via server.join message)
         var userConnection = new UserConnection
         {
             WebSocket = webSocket,
             Username = username,
             Role = role,
-            ServerId = serverId,
+            ServerId = null,
             ConnectionId = connectionId
         };
         connections[username] = userConnection;
-        Console.WriteLine($"User {username} connected to server {serverId ?? "none"}. Total connections: {connections.Count}");
+        Console.WriteLine($"User {username} connected (no server assigned yet). Total connections: {connections.Count}");
 
         // Create private queue for this user
         rabbitMqQueueManager.AddPrivateQueueForUserAsync(username).GetAwaiter().GetResult();
 
-        // Create server queue if user is on a server
-        if (!string.IsNullOrEmpty(serverId))
-        {
-            rabbitMqQueueManager.AddServerQueueAsync(serverId).GetAwaiter().GetResult();
-        }
+        // DON'T create server queue yet - will be created when user sends server.join message
 
-        // Notify SessionService of login
-        sessionServiceClient.LoginAsync(username, role, connectionId, serverId).GetAwaiter().GetResult();
+        // Notify SessionService of login (without server)
+        sessionServiceClient.LoginAsync(username, role, connectionId, null).GetAwaiter().GetResult();
 
-        // Publish presence event to RabbitMQ
-        PublishPresenceEventAsync("connected", username, role, serverId).GetAwaiter().GetResult();
+        // Publish presence event to RabbitMQ (no server yet)
+        PublishPresenceEventAsync("connected", username, role, null).GetAwaiter().GetResult();
     }
 
     /// <summary>
@@ -96,6 +91,34 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
         {
             serverId = userConnection.ServerId;
             connectionId = userConnection.ConnectionId;
+        }
+
+        // If user was on a server, broadcast leave event to remaining users on that server
+        if (!string.IsNullOrEmpty(serverId))
+        {
+            var leaveEvent = new ChatMessage
+            {
+                Type = "server.user.left",
+                FromUsername = username,
+                Role = role,
+                ServerId = serverId,
+                Timestamp = DateTime.UtcNow,
+                Content = $"{username} disconnected"
+            };
+
+            // Publish leave event (fire and forget - user is disconnecting anyway)
+            Task.Run(async () =>
+            {
+                try
+                {
+                    await rabbitMqPublisher.PublishChatMessageAsync("chat.server", $"server.{serverId}", leaveEvent);
+                    Console.WriteLine($"Broadcasted disconnect leave event for {username} on server {serverId}");
+                }
+                catch (Exception ex)
+                {
+                    Console.WriteLine($"Error broadcasting leave event for {username}: {ex.Message}");
+                }
+            });
         }
 
         // Remove connection from dictionary in a thread-safe manner
@@ -138,6 +161,12 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     /// <returns>A task that represents the asynchronous broadcast operation.</returns>
     public async Task BroadcastMessageAsync(byte[] message)
     {
+        var messageText = Encoding.UTF8.GetString(message);
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [RELAY→ALL.CLIENTS] Broadcasting to all | Message={messageText.Substring(0, Math.Min(100, messageText.Length))}...");
+
+        var sentCount = 0;
+        var totalConnections = connections.Count;
+
         // Iterate through all connections and send message to those that are open
         foreach (var userConnection in connections.Values)
         {
@@ -145,22 +174,27 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
             {
                 try
                 {
-                    var messageText = Encoding.UTF8.GetString(message);
-                    Console.WriteLine($"Attempting to send: {messageText}...");
                     await userConnection.WebSocket.SendAsync(
                         new ArraySegment<byte>(message),
                         WebSocketMessageType.Text,
                         true,
                         CancellationToken.None);
-                    Console.WriteLine($"Sent message to client:{messageText}");
+                    sentCount++;
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SENT] Message sent to user {userConnection.Username}");
                 }
                 catch (Exception exception)
                 {
                     // Log error but continue broadcasting to other clients
-                    Console.WriteLine($"Error sending to WebSocket: {exception.Message}");
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Error sending to user {userConnection.Username}: {exception.Message}");
                 }
             }
+            else
+            {
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SKIP] User {userConnection.Username} WebSocket not open (state: {userConnection.WebSocket.State})");
+            }
         }
+
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [BROADCAST.COMPLETE] Sent message to {sentCount}/{totalConnections} connected clients");
     }
 
     /// <summary>
@@ -172,6 +206,9 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     /// <remarks>Message is only sent if the user is connected and their WebSocket is in Open state</remarks>
     public async Task SendMessageToUserAsync(string username, byte[] message)
     {
+        var messageText = Encoding.UTF8.GetString(message);
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [RELAY→CLIENT] Target={username} | Message={messageText.Substring(0, Math.Min(100, messageText.Length))}...");
+
         // Check if user is connected
         if (connections.TryGetValue(username, out var userConnection))
         {
@@ -179,28 +216,26 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
             {
                 try
                 {
-                    var messageText = Encoding.UTF8.GetString(message);
-                    Console.WriteLine($"Attempting to send private message to user {username}: {messageText}...");
                     await userConnection.WebSocket.SendAsync(
                         new ArraySegment<byte>(message),
                         WebSocketMessageType.Text,
                         true,
                         CancellationToken.None);
-                    Console.WriteLine($"Sent private message to user {username}");
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SENT] Successfully sent message to user {username}");
                 }
                 catch (Exception exception)
                 {
-                    Console.WriteLine($"Error sending private message to user {username}: {exception.Message}");
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Error sending message to user {username}: {exception.Message}");
                 }
             }
             else
             {
-                Console.WriteLine($"WebSocket for user {username} is not in Open state (state: {userConnection.WebSocket.State})");
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] WebSocket for user {username} is not in Open state (state: {userConnection.WebSocket.State})");
             }
         }
         else
         {
-            Console.WriteLine($"User {username} is not connected - message not delivered");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] User {username} is not connected - message not delivered");
         }
     }
 
@@ -214,13 +249,16 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     public async Task BroadcastMessageToServerAsync(string serverId, byte[] message)
     {
         var messageText = Encoding.UTF8.GetString(message);
-        Console.WriteLine($"Broadcasting to server {serverId}: {messageText}");
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [RELAY→CLIENTS] Target=Server.{serverId} | Message={messageText.Substring(0, Math.Min(100, messageText.Length))}...");
 
         var sentCount = 0;
-        foreach (var userConnection in connections.Values)
+        var eligibleUsers = connections.Values.Where(c => c.ServerId == serverId).ToList();
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [BROADCAST] Found {eligibleUsers.Count} users on server {serverId}");
+
+        foreach (var userConnection in eligibleUsers)
         {
             // Only send to users on the specified server
-            if (userConnection.ServerId == serverId && userConnection.WebSocket.State == WebSocketState.Open)
+            if (userConnection.WebSocket.State == WebSocketState.Open)
             {
                 try
                 {
@@ -230,15 +268,20 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
                         true,
                         CancellationToken.None);
                     sentCount++;
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SENT] Message sent to user {userConnection.Username} on server {serverId}");
                 }
                 catch (Exception exception)
                 {
-                    Console.WriteLine($"Error sending server message to user {userConnection.Username}: {exception.Message}");
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Error sending server message to user {userConnection.Username}: {exception.Message}");
                 }
+            }
+            else
+            {
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SKIP] User {userConnection.Username} WebSocket not open (state: {userConnection.WebSocket.State})");
             }
         }
 
-        Console.WriteLine($"Sent server message to {sentCount} users on server {serverId}");
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [BROADCAST.COMPLETE] Sent server message to {sentCount}/{eligibleUsers.Count} users on server {serverId}");
     }
 
     /// <summary>
@@ -248,6 +291,59 @@ public class WebSocketConnectionManager : IWebSocketConnectionManager
     public int GetConnectionCount()
     {
         return connections.Count;
+    }
+
+    /// <summary>
+    /// Updates the server assignment for a connected user.
+    /// Creates server queue if joining a server, clears assignment if leaving.
+    /// </summary>
+    /// <param name="username">The username of the user to update</param>
+    /// <param name="serverId">The server ID to assign (null to clear assignment)</param>
+    public void UpdateUserServer(string username, string? serverId)
+    {
+        if (connections.TryGetValue(username, out var userConnection))
+        {
+            // Create new connection object with updated ServerId
+            var updatedConnection = new UserConnection
+            {
+                WebSocket = userConnection.WebSocket,
+                Username = userConnection.Username,
+                Role = userConnection.Role,
+                ConnectionId = userConnection.ConnectionId,
+                ServerId = serverId
+            };
+
+            connections[username] = updatedConnection;
+
+            // If joining a server, create server queue if it doesn't exist
+            if (!string.IsNullOrEmpty(serverId))
+            {
+                rabbitMqQueueManager.AddServerQueueAsync(serverId).GetAwaiter().GetResult();
+                Console.WriteLine($"Updated user {username} server assignment to {serverId}");
+            }
+            else
+            {
+                Console.WriteLine($"Cleared server assignment for user {username}");
+            }
+        }
+        else
+        {
+            Console.WriteLine($"Cannot update server for {username} - user not connected");
+        }
+    }
+
+    /// <summary>
+    /// Gets the current server ID for a connected user.
+    /// </summary>
+    /// <param name="username">The username to look up</param>
+    /// <returns>The server ID if user is on a server, null otherwise</returns>
+    public string? GetUserServerId(string username)
+    {
+        if (connections.TryGetValue(username, out var userConnection))
+        {
+            return userConnection.ServerId;
+        }
+        return null;
     }
 
     /// <summary>

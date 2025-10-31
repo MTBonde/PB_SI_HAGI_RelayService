@@ -138,6 +138,41 @@ public class SessionServiceClient : ISessionServiceClient
     }
 
     /// <summary>
+    /// Updates the server assignment for an online user
+    /// </summary>
+    /// <param name="username">The username of the user to update</param>
+    /// <param name="serverId">The new server ID to assign (null to clear server assignment)</param>
+    public async Task UpdateServerAsync(string username, string? serverId)
+    {
+        try
+        {
+            var updateRequest = new
+            {
+                username = username,
+                serverId = serverId
+            };
+
+            var json = JsonSerializer.Serialize(updateRequest);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await httpClient.PostAsync($"{baseUrl}/online/set-server", content);
+
+            if (response.IsSuccessStatusCode)
+            {
+                Console.WriteLine($"SessionService: Updated server assignment for {username} to {serverId ?? "none"}");
+            }
+            else
+            {
+                Console.WriteLine($"SessionService: Failed to update server for {username} - Status: {response.StatusCode}");
+            }
+        }
+        catch (Exception exception)
+        {
+            Console.WriteLine($"SessionService: Error updating server for {username}: {exception.Message}");
+        }
+    }
+
+    /// <summary>
     /// Represents online user information returned from SessionService
     /// </summary>
     private class OnlineUserInfo

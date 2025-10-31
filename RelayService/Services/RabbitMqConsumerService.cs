@@ -138,22 +138,25 @@ public class RabbitMqConsumerService : IRabbitMqConsumerService
             // Deserialize message from JSON
             var body = eventArgs.Body.ToArray();
             var json = Encoding.UTF8.GetString(body);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [QUEUE→RELAY] Queue=relay.global | Exchange={eventArgs.Exchange} | RoutingKey={eventArgs.RoutingKey} | Raw={json}");
+
             var chatMessage = JsonSerializer.Deserialize<ChatMessage>(json);
 
             if (chatMessage == null)
             {
-                Console.WriteLine("Failed to deserialize chat message");
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Failed to deserialize global chat message");
                 return;
             }
 
-            Console.WriteLine($"Received global message from {chatMessage.FromUsername}: {chatMessage.Content}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [GLOBAL.RECEIVED] Type={chatMessage.Type} | From={chatMessage.FromUsername} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
 
             // Broadcast to all connected WebSocket clients
             await messageBroadcaster.BroadcastChatMessageAsync(chatMessage);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [GLOBAL.BROADCASTED] Message from {chatMessage.FromUsername} sent to all clients");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error handling global message: {exception.Message}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Error handling global message: {exception.Message}");
         }
     }
 
@@ -202,22 +205,25 @@ public class RabbitMqConsumerService : IRabbitMqConsumerService
             // Deserialize message from JSON
             var body = eventArgs.Body.ToArray();
             var json = Encoding.UTF8.GetString(body);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [QUEUE→RELAY] Queue=relay.user.{recipientUsername} | Exchange={eventArgs.Exchange} | RoutingKey={eventArgs.RoutingKey} | Raw={json}");
+
             var chatMessage = JsonSerializer.Deserialize<ChatMessage>(json);
 
             if (chatMessage == null)
             {
-                Console.WriteLine("Failed to deserialize private chat message");
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Failed to deserialize private chat message for user {recipientUsername}");
                 return;
             }
 
-            Console.WriteLine($"Received private message from {chatMessage.FromUsername} to {recipientUsername}: {chatMessage.Content}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PRIVATE.RECEIVED] Type={chatMessage.Type} | From={chatMessage.FromUsername} | To={recipientUsername} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
 
             // Send to specific recipient only
             await messageBroadcaster.SendChatMessageToUserAsync(recipientUsername, chatMessage);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PRIVATE.SENT] Message from {chatMessage.FromUsername} sent to {recipientUsername}");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error handling private message for user {recipientUsername}: {exception.Message}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Error handling private message for user {recipientUsername}: {exception.Message}");
         }
     }
 
@@ -272,22 +278,25 @@ public class RabbitMqConsumerService : IRabbitMqConsumerService
             // Deserialize message from JSON
             var body = eventArgs.Body.ToArray();
             var json = Encoding.UTF8.GetString(body);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [QUEUE→RELAY] Queue=relay.server.{serverId} | Exchange={eventArgs.Exchange} | RoutingKey={eventArgs.RoutingKey} | Raw={json}");
+
             var chatMessage = JsonSerializer.Deserialize<ChatMessage>(json);
 
             if (chatMessage == null)
             {
-                Console.WriteLine("Failed to deserialize server chat message");
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Failed to deserialize server chat message for server {serverId}");
                 return;
             }
 
-            Console.WriteLine($"Received server message from {chatMessage.FromUsername} for server {serverId}: {chatMessage.Content}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.RECEIVED] Type={chatMessage.Type} | From={chatMessage.FromUsername} | Server={serverId} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
 
             // Broadcast to all users on this server
             await messageBroadcaster.BroadcastChatMessageToServerAsync(serverId, chatMessage);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.BROADCASTED] Message from {chatMessage.FromUsername} sent to all users on server {serverId}");
         }
         catch (Exception exception)
         {
-            Console.WriteLine($"Error handling server message for server {serverId}: {exception.Message}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Error handling server message for server {serverId}: {exception.Message}");
         }
     }
 }
