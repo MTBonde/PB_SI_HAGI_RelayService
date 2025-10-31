@@ -12,7 +12,7 @@ namespace RelayService.Models;
 public class ChatMessage
 {
     /// <summary>
-    /// Gets or sets the message type: "private", "server", or "global"
+    /// Gets or sets the message type: "private", "server", or "global" og "server.something"
     /// </summary>
     public string Type { get; set; } = "global";
 

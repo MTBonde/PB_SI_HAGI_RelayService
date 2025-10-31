@@ -29,4 +29,12 @@ public interface ISessionServiceClient
     /// <param name="username">The username to look up</param>
     /// <returns>The server ID where the user is connected, or null if not found or not on a server</returns>
     Task<string?> GetServerIdAsync(string username);
+
+    /// <summary>
+    /// Updates the server assignment for an online user
+    /// </summary>
+    /// <param name="username">The username of the user to update</param>
+    /// <param name="serverId">The new server ID to assign (null to clear server assignment)</param>
+    /// <returns>A task representing the asynchronous update operation</returns>
+    Task UpdateServerAsync(string username, string? serverId);
 }

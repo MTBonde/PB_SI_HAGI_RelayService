@@ -176,15 +176,17 @@ public class WebSocketEndpointHandler
         {
             // Convert bytes to string
             var messageText = Encoding.UTF8.GetString(buffer, 0, count);
-            Console.WriteLine($"Received message from user {username}: {messageText}");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [CLIENT→RELAY] Raw message from {username}: {messageText}");
 
             // EO; Parse message as ChatMessage
             var chatMessage = JsonSerializer.Deserialize<ChatMessage>(messageText);
             if (chatMessage == null)
             {
-                Console.WriteLine($"Failed to deserialize message from {username}");
+                Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Failed to deserialize message from {username}");
                 return;
             }
+
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PARSED] Type={chatMessage.Type} | From={username} | To={chatMessage.ToUsername ?? "N/A"} | Server={chatMessage.ServerId ?? "N/A"} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
 
             // EO; Default to global if type not specified
             if (string.IsNullOrEmpty(chatMessage.Type))
@@ -212,10 +214,25 @@ public class WebSocketEndpointHandler
                     break;
 
                 case "chat.global":
-                default:
                     // Global messages - broadcast to all
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ROUTING→GLOBAL] Type={chatMessage.Type} | From={username} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISH] Exchange=chat.global | RoutingKey=(empty) | From={username}");
                     await rabbitMqPublisher.PublishChatMessageAsync("chat.global", "", chatMessage);
-                    Console.WriteLine($"Published global message from {username} to chat.global");
+                    Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISHED] Global message from {username} to chat.global");
+                    break;
+
+                case "server.join":
+                    // User joins a server
+                    await HandleServerJoinAsync(chatMessage, username, role);
+                    break;
+
+                case "server.leave":
+                    // User leaves a server
+                    await HandleServerLeaveAsync(chatMessage, username, role);
+                    break;
+
+                default:
+                    Console.WriteLine($"Unknown message type from {username}: {chatMessage.Type}");
                     break;
             }
         }
@@ -237,18 +254,21 @@ public class WebSocketEndpointHandler
     /// <param name="senderUsername">The username of the sender</param>
     private async Task HandlePrivateMessageAsync(ChatMessage chatMessage, string senderUsername)
     {
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ROUTING→PRIVATE] Type={chatMessage.Type} | From={senderUsername} | To={chatMessage.ToUsername ?? "MISSING"} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
+
         // Validate ToUsername is provided
         if (string.IsNullOrEmpty(chatMessage.ToUsername))
         {
-            Console.WriteLine($"Private message from {senderUsername} missing ToUsername - message ignored");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Private message from {senderUsername} missing ToUsername - message ignored");
             return;
         }
 
         // Publish to chat.private exchange with user-specific routing key
         var routingKey = $"user.{chatMessage.ToUsername}";
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISH] Exchange=chat.private | RoutingKey={routingKey} | From={senderUsername} | To={chatMessage.ToUsername}");
         await rabbitMqPublisher.PublishChatMessageAsync("chat.private", routingKey, chatMessage);
 
-        Console.WriteLine($"Published private message from {senderUsername} to {chatMessage.ToUsername} via chat.private exchange");
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISHED] Private message from {senderUsername} to {chatMessage.ToUsername} via chat.private exchange");
     }
 
     /// <summary>
@@ -259,24 +279,138 @@ public class WebSocketEndpointHandler
     /// <param name="senderUsername">The username of the sender</param>
     private async Task HandleServerMessageAsync(ChatMessage chatMessage, string senderUsername)
     {
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ROUTING→SERVER] Type={chatMessage.Type} | From={senderUsername} | Server={chatMessage.ServerId ?? "LOOKUP"} | Content={(string.IsNullOrEmpty(chatMessage.Content) ? "N/A" : chatMessage.Content.Length > 50 ? chatMessage.Content.Substring(0, 50) + "..." : chatMessage.Content)}");
+
         // Get server ID - either from message or from SessionService
         var serverId = chatMessage.ServerId;
         if (string.IsNullOrEmpty(serverId))
         {
             serverId = await sessionServiceClient.GetServerIdAsync(senderUsername);
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [LOOKUP] Fetched serverId from SessionService for {senderUsername}: {serverId ?? "NULL"}");
         }
 
         // Validate server ID is available
         if (string.IsNullOrEmpty(serverId))
         {
-            Console.WriteLine($"Server message from {senderUsername} has no ServerId - message ignored");
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] Server message from {senderUsername} has no ServerId - message ignored");
             return;
         }
 
         // Publish to chat.server exchange with server-specific routing key
         var routingKey = $"server.{serverId}";
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISH] Exchange=chat.server | RoutingKey={routingKey} | From={senderUsername} | Server={serverId}");
         await rabbitMqPublisher.PublishChatMessageAsync("chat.server", routingKey, chatMessage);
 
-        Console.WriteLine($"Published server message from {senderUsername} to server {serverId} via chat.server exchange");
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISHED] Server message from {senderUsername} to server {serverId} via chat.server exchange");
+    }
+
+    /// <summary>
+    /// Handles server join requests from clients.
+    /// Updates SessionService, internal state, creates server queue, and broadcasts join event.
+    /// </summary>
+    /// <param name="message">The server join message containing ServerId</param>
+    /// <param name="username">The username of the user joining the server</param>
+    /// <param name="role">The role of the user joining the server</param>
+    private async Task HandleServerJoinAsync(ChatMessage message, string username, string role)
+    {
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.JOIN] User={username} | RequestedServer={message.ServerId ?? "MISSING"}");
+
+        // Validate ServerId is provided
+        if (string.IsNullOrEmpty(message.ServerId))
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] server.join from {username} missing ServerId - message ignored");
+            return;
+        }
+
+        var serverId = message.ServerId;
+        var previousServerId = connectionManager.GetUserServerId(username);
+
+        // If already on a server, handle implicit leave before joining new server
+        if (!string.IsNullOrEmpty(previousServerId) && previousServerId != serverId)
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.SWITCH] User={username} | From={previousServerId} | To={serverId}");
+            await HandleServerLeaveInternalAsync(username, role, previousServerId);
+        }
+
+        // Update SessionService with new server assignment
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SESSION.UPDATE] Updating SessionService for {username} to server {serverId}");
+        await sessionServiceClient.UpdateServerAsync(username, serverId);
+
+        // Update internal connection state (this also creates server queue if needed)
+        connectionManager.UpdateUserServer(username, serverId);
+
+        // Broadcast join event to all users on this server
+        var joinEvent = new ChatMessage
+        {
+            Type = "server.user.joined",
+            FromUsername = username,
+            Role = role,
+            ServerId = serverId,
+            Timestamp = DateTime.UtcNow,
+            Content = $"{username} joined the server"
+        };
+
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISH] Exchange=chat.server | RoutingKey=server.{serverId} | Event=user.joined | User={username}");
+        await rabbitMqPublisher.PublishChatMessageAsync("chat.server", $"server.{serverId}", joinEvent);
+
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.JOIN.SUCCESS] User {username} joined server {serverId} successfully");
+    }
+
+    /// <summary>
+    /// Handles explicit server leave requests from clients.
+    /// </summary>
+    /// <param name="message">The server leave message</param>
+    /// <param name="username">The username of the user leaving the server</param>
+    /// <param name="role">The role of the user leaving the server</param>
+    private async Task HandleServerLeaveAsync(ChatMessage message, string username, string role)
+    {
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.LEAVE] User={username} requested to leave server");
+
+        var currentServerId = connectionManager.GetUserServerId(username);
+
+        // Validate user is actually on a server
+        if (string.IsNullOrEmpty(currentServerId))
+        {
+            Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [ERROR] server.leave from {username} but user is not on any server - message ignored");
+            return;
+        }
+
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.LEAVE] User={username} leaving server {currentServerId}");
+        await HandleServerLeaveInternalAsync(username, role, currentServerId);
+    }
+
+    /// <summary>
+    /// Internal method to handle server leave logic.
+    /// Used by both explicit leave requests and implicit leaves during server switching.
+    /// </summary>
+    /// <param name="username">The username of the user leaving the server</param>
+    /// <param name="role">The role of the user leaving the server</param>
+    /// <param name="serverId">The server ID the user is leaving from</param>
+    private async Task HandleServerLeaveInternalAsync(string username, string role, string serverId)
+    {
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.LEAVE.INTERNAL] User={username} | Server={serverId}");
+
+        // Update SessionService to clear server assignment
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SESSION.UPDATE] Clearing SessionService server assignment for {username}");
+        await sessionServiceClient.UpdateServerAsync(username, null);
+
+        // Update internal connection state
+        connectionManager.UpdateUserServer(username, null);
+
+        // Broadcast leave event to remaining users on the server
+        var leaveEvent = new ChatMessage
+        {
+            Type = "server.user.left",
+            FromUsername = username,
+            Role = role,
+            ServerId = serverId,
+            Timestamp = DateTime.UtcNow,
+            Content = $"{username} left the server"
+        };
+
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [PUBLISH] Exchange=chat.server | RoutingKey=server.{serverId} | Event=user.left | User={username}");
+        await rabbitMqPublisher.PublishChatMessageAsync("chat.server", $"server.{serverId}", leaveEvent);
+
+        Console.WriteLine($"[{DateTime.UtcNow:HH:mm:ss.fff}] [SERVER.LEAVE.SUCCESS] User {username} left server {serverId}");
     }
 }
