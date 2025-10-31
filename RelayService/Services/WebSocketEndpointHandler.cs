@@ -178,7 +178,7 @@ public class WebSocketEndpointHandler
             var messageText = Encoding.UTF8.GetString(buffer, 0, count);
             Console.WriteLine($"Received message from user {username}: {messageText}");
 
-            // Parse message as ChatMessage
+            // EO; Parse message as ChatMessage
             var chatMessage = JsonSerializer.Deserialize<ChatMessage>(messageText);
             if (chatMessage == null)
             {
@@ -186,10 +186,11 @@ public class WebSocketEndpointHandler
                 return;
             }
 
-            // Default to global if type not specified
+            // EO; Default to global if type not specified
             if (string.IsNullOrEmpty(chatMessage.Type))
             {
-                chatMessage.Type = "global";
+                Console.WriteLine($"Chat defaulted to global {username}");
+                chatMessage.Type = "chat.global";
             }
 
             // Enrich message with server-side data
@@ -200,17 +201,17 @@ public class WebSocketEndpointHandler
             // Route based on message type
             switch (chatMessage.Type.ToLower())
             {
-                case "private":
+                case "chat.private":
                     // Private messages - route to specific user
                     await HandlePrivateMessageAsync(chatMessage, username);
                     break;
 
-                case "server":
+                case "chat.server":
                     // Server messages - route to users on same server
                     await HandleServerMessageAsync(chatMessage, username);
                     break;
 
-                case "global":
+                case "chat.global":
                 default:
                     // Global messages - broadcast to all
                     await rabbitMqPublisher.PublishChatMessageAsync("chat.global", "", chatMessage);
