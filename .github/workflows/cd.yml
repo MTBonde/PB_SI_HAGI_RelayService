@@ -3,6 +3,12 @@ name: CD - Build and Push Docker Image
 on:
   release:
     types: [published]
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version tag (e.g., v0.5.0)'
+        required: true
+        type: string
 
 jobs:
   docker:
@@ -25,7 +31,14 @@ jobs:
       - name: Build and push Docker image
         run: |
           IMAGE_NAME=ghcr.io/mtbonde/hagi-relayservice
-          VERSION=${{ github.event.release.tag_name }}
+
+          # Get version from release event or workflow_dispatch input
+          if [ "${{ github.event_name }}" = "release" ]; then
+            VERSION=${{ github.event.release.tag_name }}
+          else
+            VERSION=${{ inputs.version }}
+          fi
+
           VERSION_CLEAN=${VERSION#v}
 
           docker build -t $IMAGE_NAME:$VERSION_CLEAN -t $IMAGE_NAME:latest -f RelayService/Dockerfile .

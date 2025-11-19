@@ -1,20 +1,26 @@
 name: Semantic Release
 
 on:
-  push:
+  workflow_run:
+    workflows: ["CI - Build and Test"]
+    types:
+      - completed
     branches:
       - main
 
 permissions:
   contents: write
+  actions: write
 
 jobs:
   release:
     runs-on: ubuntu-latest
+    if: ${{ github.event.workflow_run.conclusion == 'success' }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ github.event.workflow_run.head_branch }}
           fetch-depth: 0
 
       - name: Run semantic release
@@ -44,6 +50,14 @@ jobs:
           git add CHANGELOG.md version.txt
           git commit -m "chore: update CHANGELOG.md and version.txt for ${{ steps.semantic_release.outputs.version }} [skip ci]"
           git push
+
+      - name: Trigger CD workflow
+        if: steps.semantic_release.outputs.version != ''
+        run: |
+          gh workflow run cd.yml \
+            -f version=${{ steps.semantic_release.outputs.version }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: No release needed
         if: steps.semantic_release.outputs.version == ''
