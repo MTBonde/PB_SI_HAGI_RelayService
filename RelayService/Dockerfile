@@ -3,9 +3,11 @@ WORKDIR /app
 
 FROM mcr.microsoft.com/dotnet/sdk:9.0 AS build
 WORKDIR /src
-COPY ["RelayService.csproj", "."]
-RUN dotnet restore
-COPY . .
+COPY ["RelayService/RelayService.csproj", "RelayService/"]
+RUN dotnet restore "RelayService/RelayService.csproj"
+COPY RelayService/ RelayService/
+COPY version.txt RelayService/
+WORKDIR /src/RelayService
 RUN dotnet build "RelayService.csproj" -c Release -o /app/build
 
 FROM build AS publish
