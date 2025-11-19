@@ -1,3 +1,10 @@
+## 0.6.1 (2025-11-19)
+
+#### Bug Fixes
+
+* **ci:** cd triggered by semantic triggered by ci (f0708c5d)
+
+
 ## 0.6.0 (2025-11-19)
 
 #### Features
