@@ -1,10 +1,8 @@
 name: CD - Build and Push Docker Image
 
 on:
-  push:
-    branches: [main]
-  pull_request:
-    branches: [main]
+  release:
+    types: [published]
 
 jobs:
   docker:
@@ -27,7 +25,8 @@ jobs:
       - name: Build and push Docker image
         run: |
           IMAGE_NAME=ghcr.io/mtbonde/hagi-relayservice
-          VERSION=0.5.4
+          VERSION=${{ github.event.release.tag_name }}
+          VERSION_CLEAN=${VERSION#v}
 
-          docker build -t $IMAGE_NAME:$VERSION -t $IMAGE_NAME:latest ./RelayService
+          docker build -t $IMAGE_NAME:$VERSION_CLEAN -t $IMAGE_NAME:latest -f RelayService/Dockerfile .
           docker push $IMAGE_NAME --all-tags

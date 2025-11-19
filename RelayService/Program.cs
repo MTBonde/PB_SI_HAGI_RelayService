@@ -7,6 +7,26 @@ using RelayService.Models;
 using RelayService.Services;
 using Hagi.Robust;
 
+string GetApplicationVersion()
+{
+    const string versionFilePath = "version.txt";
+    const string fallbackVersion = ServiceVersion.Current;
+
+    try
+    {
+        if (File.Exists(versionFilePath))
+        {
+            return File.ReadAllText(versionFilePath).Trim();
+        }
+    }
+    catch (Exception)
+    {
+        // If reading fails, fall back to ServiceVersion
+    }
+
+    return fallbackVersion;
+}
+
 // Create webapp and websocket
 var builder = WebApplication.CreateBuilder(args);
 
@@ -56,12 +76,15 @@ builder.Services.AddSingleton<ISessionServiceClient>(serviceProvider =>
 
 // Add Swagger/OpenAPI
 builder.Services.AddEndpointsApiExplorer();
+
+var applicationVersion = GetApplicationVersion();
+
 builder.Services.AddSwaggerGen(options =>
 {
     options.SwaggerDoc("v1", new Microsoft.OpenApi.Models.OpenApiInfo
     {
         Title = "RelayService API",
-        Version = ServiceVersion.Current,
+        Version = applicationVersion,
         Description = "WebSocket relay service for broadcasting messages from RabbitMQ to connected clients"
     });
 });
@@ -86,7 +109,7 @@ app.Use(async (context, next) =>
 });
 
 // Nice intro
-Console.WriteLine($"RelayService v{ServiceVersion.Current} starting...");
+Console.WriteLine($"RelayService v{applicationVersion} starting...");
 
 // Start RabbitMQ consumer in background
 var rabbitMqConsumerService = app.Services.GetRequiredService<IRabbitMqConsumerService>();
@@ -94,13 +117,13 @@ Task.Run(async () => await rabbitMqConsumerService.StartConsumerAsync());
 
 // Declare endpoints (these create endpoint routing which runs after our middleware)
 app.MapGet("/health", () => "healthy");
-app.MapGet("/version", () => ServiceVersion.Current);
+app.MapGet("/version", () => new { service = "RelayService", version = applicationVersion });
 
 // Enable Swagger UI
 app.UseSwagger();
 app.UseSwaggerUI(options =>
 {
-    options.SwaggerEndpoint("/swagger/v1/swagger.json", $"RelayService API v{ServiceVersion.Current}");
+    options.SwaggerEndpoint("/swagger/v1/swagger.json", $"RelayService API v{applicationVersion}");
     options.RoutePrefix = "swagger";
 });
 
