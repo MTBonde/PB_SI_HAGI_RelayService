@@ -1,3 +1,10 @@
+## 0.1.0 (2025-11-19)
+
+#### Feature
+
+* **ci:** integrate semantic versioning with automated (9dde1f19)
+
+
 ## 0.5.4 (2025-01-19)
 
 #### Bug Fixes
